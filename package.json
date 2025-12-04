@@ -1,0 +1,27 @@
+{
+  "name": "nyc-cre-app",
+  "version": "1.0.0",
+  "description": "NYC Commercial Real Estate Deal Sourcing Tool - Midtown South",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "fetch": "node fetch_nyc_data.js",
+    "fetch:backup": "node fetch_nyc_data.js --json-backup",
+    "test:db": "node test_supabase.js"
+  },
+  "keywords": [
+    "nyc",
+    "commercial-real-estate",
+    "deal-sourcing",
+    "pluto",
+    "acris"
+  ],
+  "author": "Land Resource Partners",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.86.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0"
+  }
+}

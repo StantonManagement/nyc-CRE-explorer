@@ -1,0 +1,77 @@
+{
+  "project": "NYC CRE Explorer",
+  "description": "Commercial real estate deal sourcing tool for Midtown South NYC",
+  
+  "stack": {
+    "backend": "Express.js 5.x",
+    "frontend": "Vanilla JavaScript (single-file SPA)",
+    "mapping": "Mapbox GL JS",
+    "data": "NYC Open Data APIs (Socrata)"
+  },
+
+  "files": {
+    "server.js": "Express API server - all backend logic",
+    "public/index.html": "Frontend SPA - HTML, CSS, JS in one file",
+    "fetch_nyc_data.js": "NYC Open Data fetcher script",
+    "data/combined_data.json": "Cached property data (do not edit directly)"
+  },
+
+  "conventions": {
+    "api-prefix": "All routes start with /api/",
+    "response-format-list": "{ count: number, [dataKey]: array }",
+    "response-format-error": "{ error: string }",
+    "primary-key": "BBL (Borough-Block-Lot) e.g. 1008010001",
+    "date-format": "ISO string or YYYY-MM-DD",
+    "price-format": "Whole dollars, no cents"
+  },
+
+  "code-style": {
+    "indent": 2,
+    "quotes": "single",
+    "semicolons": true,
+    "trailing-commas": false
+  },
+
+  "strict-rules": [
+    "NO new npm dependencies without approval",
+    "NO React, Vue, Angular, or other frameworks",
+    "NO separate CSS or JS files - keep single-file frontend",
+    "NO hardcoded API tokens",
+    "NO direct edits to combined_data.json",
+    "ALWAYS use /api/ prefix for endpoints",
+    "ALWAYS return { error } for error responses",
+    "ALWAYS test with node server.js before committing"
+  ],
+
+  "nyc-open-data": {
+    "pluto": "https://data.cityofnewyork.us/resource/64uk-42ks.json",
+    "sales": "https://data.cityofnewyork.us/resource/usep-8jbt.json",
+    "permits": "https://data.cityofnewyork.us/resource/ipu4-2vj7.json",
+    "violations": "https://data.cityofnewyork.us/resource/3h2n-5cm9.json",
+    "acris": "https://data.cityofnewyork.us/resource/bnx9-e6tj.json"
+  },
+
+  "building-classes": {
+    "O": "Office",
+    "K": "Retail/Store",
+    "D": "Elevator Apartments",
+    "E": "Warehouse",
+    "R": "Condo"
+  },
+
+  "testing": {
+    "start": "node server.js",
+    "fetch-data": "node fetch_nyc_data.js",
+    "verify-api": "curl http://localhost:3000/api/stats"
+  },
+
+  "midtown-south": {
+    "zips": ["10001", "10010", "10011", "10016", "10018", "10036"],
+    "bounds": {
+      "north": 40.758,
+      "south": 40.740,
+      "east": -73.980,
+      "west": -73.997
+    }
+  }
+}

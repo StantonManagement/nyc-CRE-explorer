@@ -1,0 +1,1932 @@
+/**
+ * NYC CRE Explorer - API Server
+ * Queries Supabase for property data
+ */
+
+import 'dotenv/config';
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ES module dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// =============================================
+// SETUP
+// =============================================
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
+
+// Middleware
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Disable caching for all API responses
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
+// =============================================
+// SIMPLE AUTH (Hardcoded Users)
+// =============================================
+
+// Hardcoded users
+const USERS = {
+  'admin': {
+    id: 'admin-001',
+    email: 'admin@nyccre.com',
+    password: 'admin123',
+    role: 'admin'
+  },
+  'client': {
+    id: 'client-001',
+    email: 'client@nyccre.com',
+    password: 'client123',
+    role: 'client'
+  }
+};
+
+// Active sessions (in-memory)
+const sessions = new Map();
+
+/**
+ * Extract and verify simple auth token from request
+ * Adds req.user if valid, null otherwise
+ */
+function authMiddleware(req, res, next) {
+  req.user = null;
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+  
+  const token = authHeader.substring(7);
+  const user = sessions.get(token);
+  
+  if (user) {
+    req.user = user;
+  }
+  
+  next();
+}
+
+/**
+ * Require authentication - returns 401 if not logged in
+ */
+function requireAuth(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  next();
+}
+
+// Apply auth middleware to all routes
+app.use(authMiddleware);
+
+// =============================================
+// FILTER CONFIGURATION (Single Source of Truth)
+// =============================================
+
+const FILTER_CONFIG = {
+  // Building Class Filters
+  bldgclass: {
+    office: {
+      prefixes: ['O'],
+      label: 'Office',
+      description: 'Office buildings (O1-O9)'
+    },
+    retail: {
+      prefixes: ['K'],
+      label: 'Retail', 
+      description: 'Store buildings (K1-K9)'
+    },
+    multifam: {
+      prefixes: ['C', 'D', 'S', 'R'],
+      label: 'Multifamily',
+      description: 'Walk-ups, Elevator Apts, Mixed-Use, Condos'
+    },
+    industrial: {
+      prefixes: ['E', 'F', 'G', 'L'],
+      label: 'Industrial',
+      description: 'Warehouses, Factories, Garages, Lofts'
+    }
+  },
+  
+  // Numeric Range Filters
+  ranges: {
+    minFarGap: { column: 'far_gap', operator: 'gte' },
+    maxFarGap: { column: 'far_gap', operator: 'lte' },
+    minYear: { column: 'yearbuilt', operator: 'gte' },
+    maxYear: { column: 'yearbuilt', operator: 'lte' },
+    minAssessed: { column: 'assesstot', operator: 'gte' },
+    maxAssessed: { column: 'assesstot', operator: 'lte' },
+    minDistress: { column: 'distress_score', operator: 'gte' }
+  },
+  
+  // Text Search Filters
+  search: {
+    owner: { column: 'ownername', mode: 'ilike' },
+    address: { column: 'address', mode: 'ilike' },
+    zipcode: { column: 'zipcode', mode: 'eq' }
+  },
+  
+  // Sort Options
+  sort: {
+    options: ['far_gap', 'assesstot', 'yearbuilt', 'bldgarea', 'lotarea', 'distress_score'],
+    default: 'far_gap',
+    defaultOrder: 'desc'
+  }
+};
+
+// Helper: Check if property matches building class filter
+function matchesBldgClass(bldgclass, filterValue) {
+  if (!filterValue || filterValue === 'all') return true;
+  const config = FILTER_CONFIG.bldgclass[filterValue];
+  if (!config) return true;
+  const prefix = (bldgclass || '').charAt(0).toUpperCase();
+  return config.prefixes.includes(prefix);
+}
+
+// Helper: Build Supabase query for building class
+function applyBldgClassFilter(query, filterValue) {
+  if (!filterValue || filterValue === 'all') return query;
+  const config = FILTER_CONFIG.bldgclass[filterValue];
+  if (!config) return query;
+  
+  const conditions = config.prefixes.map(p => `bldgclass.ilike.${p}%`).join(',');
+  return query.or(conditions);
+}
+
+// =============================================
+// API ROUTES
+// =============================================
+
+// =============================================
+// AUTH ROUTES
+// =============================================
+
+/**
+ * POST /api/auth/login
+ * Simple username/password login
+ */
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    const user = USERS[username];
+    
+    if (!user || user.password !== password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Generate simple token (in production, use JWT)
+    const token = `${username}-${Date.now()}-${Math.random().toString(36)}`;
+    
+    // Store session
+    sessions.set(token, {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      username: username
+    });
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        username: username
+      },
+      token: token
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/auth/me
+ * Get current user info
+ */
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) {
+    return res.json({ user: null });
+  }
+  
+  res.json({
+    user: {
+      id: req.user.id,
+      email: req.user.email,
+      created_at: req.user.created_at
+    }
+  });
+});
+
+/**
+ * POST /api/auth/logout
+ * Sign out and clear session
+ */
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    sessions.delete(token);
+  }
+  res.json({ success: true });
+});
+
+// =============================================
+// DATA ROUTES
+// =============================================
+
+/**
+ * GET /api/stats
+ * Returns summary statistics
+ */
+app.get('/api/stats', async (req, res) => {
+  try {
+    // Get property count by building class
+    const { data: properties, error: propError } = await supabase
+      .from('properties')
+      .select('bbl, bldgclass, far_gap, assesstot');
+    
+    if (propError) throw propError;
+    
+    // Get sales count
+    const { count: salesCount, error: salesError } = await supabase
+      .from('sales')
+      .select('*', { count: 'exact', head: true });
+    
+    if (salesError) throw salesError;
+    
+    // Calculate stats
+    const byClass = {};
+    let totalAssessed = 0;
+    let highFarGap = 0;
+    
+    properties.forEach(p => {
+      const prefix = (p.bldgclass || 'X').charAt(0);
+      byClass[prefix] = (byClass[prefix] || 0) + 1;
+      totalAssessed += p.assesstot || 0;
+      if (p.far_gap > 2) highFarGap++;
+    });
+    
+    res.json({
+      properties: properties.length,
+      sales: salesCount || 0,
+      byBuildingClass: byClass,
+      totalAssessedValue: totalAssessed,
+      highFarGapCount: highFarGap,
+      lastUpdated: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/data
+ * 
+ * THE unified endpoint. Returns everything the frontend needs to render.
+ * Frontend should NEVER filter data - just render what this returns.
+ * 
+ * Query params:
+ *   bldgclass    - Semantic filter: office|retail|multifam|industrial|all
+ *   minFarGap    - Minimum FAR gap
+ *   maxFarGap    - Maximum FAR gap  
+ *   minYear      - Minimum year built
+ *   maxYear      - Maximum year built
+ *   owner        - Owner name search (partial)
+ *   address      - Address search (partial)
+ *   zipcode      - Exact zipcode match
+ *   minDistress  - Minimum distress score
+ *   sort         - Sort field
+ *   order        - asc|desc
+ *   limit        - Max properties (default 500)
+ *   salesDays    - Sales from last N days (default 365)
+ *   salesLimit   - Max sales (default 100)
+ */
+app.get('/api/data', async (req, res) => {
+  try {
+    const {
+      bldgclass = 'all',
+      minFarGap,
+      maxFarGap,
+      minYear,
+      maxYear,
+      owner,
+      address,
+      zipcode,
+      minDistress,
+      sort = FILTER_CONFIG.sort.default,
+      order = FILTER_CONFIG.sort.defaultOrder,
+      limit = 500,
+      salesDays = 365,
+      salesLimit = 100
+    } = req.query;
+    
+    console.log('[/api/data] Request:', { bldgclass, minFarGap, minDistress, limit });
+    
+    // ─────────────────────────────────────────
+    // 1. QUERY PROPERTIES
+    // ─────────────────────────────────────────
+    let propQuery = supabase
+      .from('properties')
+      .select('*, violations(violation_type, status)');
+    
+    // Building class filter
+    propQuery = applyBldgClassFilter(propQuery, bldgclass);
+    
+    // Range filters
+    if (minFarGap) propQuery = propQuery.gte('far_gap', parseFloat(minFarGap));
+    if (maxFarGap) propQuery = propQuery.lte('far_gap', parseFloat(maxFarGap));
+    if (minYear) propQuery = propQuery.gte('yearbuilt', parseInt(minYear));
+    if (maxYear) propQuery = propQuery.lte('yearbuilt', parseInt(maxYear));
+    
+    // Text search filters
+    if (owner) propQuery = propQuery.ilike('ownername', `%${owner}%`);
+    if (address) propQuery = propQuery.ilike('address', `%${address}%`);
+    if (zipcode) propQuery = propQuery.eq('zipcode', zipcode);
+    
+    // Fetch properties (we'll filter by distress after calculating it)
+    const fetchLimit = minDistress ? 10000 : parseInt(limit);
+    propQuery = propQuery.limit(fetchLimit);
+    
+    const { data: rawProperties, error: propError } = await propQuery;
+    if (propError) throw propError;
+    
+    // Calculate distress score on the fly for each property
+    const enrichedProperties = rawProperties.map(p => {
+      const openViolations = (p.violations || []).filter(v => v.status === 'Open');
+      const hpdCount = openViolations.filter(v => v.violation_type === 'HPD').length;
+      const dobCount = openViolations.filter(v => v.violation_type === 'DOB').length;
+      
+      const calculatedScore = Math.min(hpdCount, 20) + Math.min(dobCount * 5, 30);
+      
+      return {
+        ...p,
+        distress_score: calculatedScore,
+        violation_count: openViolations.length,
+        violations: undefined // Remove from response to keep it clean
+      };
+    });
+    
+    // Apply distress filter after calculation
+    let filteredProperties = enrichedProperties;
+    if (minDistress) {
+      filteredProperties = enrichedProperties.filter(p => p.distress_score >= parseInt(minDistress));
+    }
+    
+    // Sorting
+    const sortField = FILTER_CONFIG.sort.options.includes(sort) ? sort : FILTER_CONFIG.sort.default;
+    const ascending = order === 'asc';
+    
+    filteredProperties.sort((a, b) => {
+      const aVal = a[sortField] || 0;
+      const bVal = b[sortField] || 0;
+      return ascending ? aVal - bVal : bVal - aVal;
+    });
+    
+    // Apply limit after sorting
+    const properties = minDistress ? filteredProperties : filteredProperties.slice(0, parseInt(limit));
+    
+    // ─────────────────────────────────────────
+    // 2. QUERY SALES (matching same filters)
+    // ─────────────────────────────────────────
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(salesDays));
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    
+    let salesQuery = supabase
+      .from('sales')
+      .select(`
+        *,
+        properties!inner (
+          address,
+          bldgclass,
+          ownername,
+          zonedist1,
+          far_gap
+        )
+      `)
+      .gte('sale_date', cutoffStr)
+      .order('sale_date', { ascending: false })
+      .limit(parseInt(salesLimit));
+    
+    const { data: rawSales, error: salesError } = await salesQuery;
+    if (salesError) throw salesError;
+    
+    // Filter sales by building class (applied to joined property)
+    const sales = rawSales.filter(s => 
+      matchesBldgClass(s.properties?.bldgclass, bldgclass)
+    );
+    
+    // ─────────────────────────────────────────
+    // 3. COMPUTE STATS
+    // ─────────────────────────────────────────
+    const stats = {
+      propertyCount: properties.length,
+      salesCount: sales.length,
+      
+      // By building class (of filtered results)
+      byClass: properties.reduce((acc, p) => {
+        const prefix = (p.bldgclass || 'X').charAt(0);
+        acc[prefix] = (acc[prefix] || 0) + 1;
+        return acc;
+      }, {}),
+      
+      // Totals
+      totalAssessed: properties.reduce((sum, p) => sum + (p.assesstot || 0), 0),
+      totalSF: properties.reduce((sum, p) => sum + (p.bldgarea || 0), 0),
+      
+      // Opportunity metrics
+      highFarGapCount: properties.filter(p => p.far_gap > 2).length,
+      avgFarGap: properties.length > 0 
+        ? properties.reduce((sum, p) => sum + (p.far_gap || 0), 0) / properties.length 
+        : 0,
+      
+      // Sales metrics
+      avgSalePrice: sales.length > 0
+        ? sales.reduce((sum, s) => sum + (s.sale_price || 0), 0) / sales.length
+        : 0,
+      avgPricePerSF: sales.filter(s => s.price_per_sf).length > 0
+        ? sales.filter(s => s.price_per_sf).reduce((sum, s) => sum + s.price_per_sf, 0) / sales.filter(s => s.price_per_sf).length
+        : 0,
+      
+      // Active filters (echo back for UI state sync)
+      activeFilters: {
+        bldgclass,
+        minFarGap: minFarGap || null,
+        maxFarGap: maxFarGap || null,
+        minYear: minYear || null,
+        maxYear: maxYear || null,
+        owner: owner || null,
+        address: address || null,
+        zipcode: zipcode || null,
+        minDistress: minDistress || null,
+        sort: sortField,
+        order
+      }
+    };
+    
+    console.log(`[/api/data] Returning ${properties.length} properties, ${sales.length} sales`);
+    
+    // ─────────────────────────────────────────
+    // 4. RETURN UNIFIED RESPONSE
+    // ─────────────────────────────────────────
+    res.json({
+      properties,
+      sales,
+      stats,
+      meta: {
+        timestamp: new Date().toISOString(),
+        filterConfig: FILTER_CONFIG.bldgclass // Send filter options for UI
+      }
+    });
+    
+  } catch (error) {
+    console.error('Data endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/properties
+ * Returns property list with filtering
+ * 
+ * Query params:
+ *   bldgclass - Filter by building class prefix (O, K, D, E, R)
+ *   minFarGap - Minimum FAR gap
+ *   owner - Owner name search (partial match)
+ *   minYear - Minimum year built
+ *   maxYear - Maximum year built
+ *   zipcode - Filter by zipcode
+ *   limit - Max results (default 100)
+ *   offset - Pagination offset
+ *   sort - Sort field (far_gap, assesstot, yearbuilt)
+ *   order - Sort order (asc, desc)
+ */
+app.get('/api/properties', async (req, res) => {
+  try {
+    const {
+      bldgclass,
+      minFarGap,
+      minDistress,
+      owner,
+      minYear,
+      maxYear,
+      zipcode,
+      limit = 50,
+      offset = 0,
+      sort = 'far_gap',
+      order = 'desc'
+    } = req.query;
+
+    console.log('GET /api/properties params:', { minDistress, limit, bldgclass });
+    
+    // Start query - select properties with violations
+    let query = supabase
+      .from('properties')
+      .select('*, violations(violation_type, status)');
+    
+    // Apply filters
+    if (bldgclass) {
+      if (bldgclass === 'multifam') {
+        // Multifamily: Walk-up(C), Elevator(D), Mixed(S), Condo(R)
+        query = query.or('bldgclass.ilike.C%,bldgclass.ilike.D%,bldgclass.ilike.S%,bldgclass.ilike.R%');
+      } else if (bldgclass === 'industrial') {
+        // Industrial: Warehouse(E), Factory(F), Garage(G), Loft(L)
+        query = query.or('bldgclass.ilike.E%,bldgclass.ilike.F%,bldgclass.ilike.G%,bldgclass.ilike.L%');
+      } else if (bldgclass === 'office') {
+        query = query.ilike('bldgclass', 'O%');
+      } else if (bldgclass === 'retail') {
+        query = query.ilike('bldgclass', 'K%');
+      } else {
+        // Fallback
+        query = query.ilike('bldgclass', `${bldgclass}%`);
+      }
+    }
+    
+    if (minFarGap) {
+      query = query.gte('far_gap', parseFloat(minFarGap));
+    }
+    
+    if (owner) {
+      query = query.ilike('ownername', `%${owner}%`);
+    }
+    
+    if (minYear) {
+      query = query.gte('yearbuilt', parseInt(minYear));
+    }
+    
+    if (maxYear) {
+      query = query.lte('yearbuilt', parseInt(maxYear));
+    }
+    
+    if (zipcode) {
+      query = query.eq('zipcode', zipcode);
+    }
+    
+    // Pagination - fetch more to ensure we have enough after filtering
+    // If filtering by distress, we must scan ALL properties to find them, since we can't filter by computed score in DB
+    const fetchLimit = minDistress ? 10000 : parseInt(limit);
+    query = query.range(parseInt(offset), parseInt(offset) + fetchLimit - 1);
+    
+    const { data, error } = await query;
+    
+    if (error) throw error;
+    
+    // Debug: Check first property's violations
+    if (data.length > 0) {
+      console.log('Sample property violations:', data[0].bbl, data[0].violations);
+    }
+    
+    // Calculate distress score on the fly for each property
+    const enriched = data.map(p => {
+      const openViolations = (p.violations || []).filter(v => v.status === 'Open');
+      const hpdCount = openViolations.filter(v => v.violation_type === 'HPD').length;
+      const dobCount = openViolations.filter(v => v.violation_type === 'DOB').length;
+      
+      const calculatedScore = Math.min(hpdCount, 20) + Math.min(dobCount * 5, 30);
+      
+      return {
+        ...p,
+        distress_score: calculatedScore,
+        violation_count: openViolations.length,
+        violations: undefined // Remove from response to keep it clean
+      };
+    });
+    
+    console.log(`Fetched ${data.length} properties, ${enriched.filter(p => p.distress_score > 0).length} with violations`);
+    
+    // Apply distress filter after calculation
+    let filtered = enriched;
+    if (minDistress) {
+      filtered = enriched.filter(p => p.distress_score >= parseInt(minDistress));
+    }
+    
+    // Sorting
+    const validSorts = ['far_gap', 'assesstot', 'yearbuilt', 'bldgarea', 'lotarea', 'distress_score'];
+    const sortField = validSorts.includes(sort) ? sort : 'far_gap';
+    const ascending = order === 'asc';
+    
+    filtered.sort((a, b) => {
+      const aVal = a[sortField] || 0;
+      const bVal = b[sortField] || 0;
+      return ascending ? aVal - bVal : bVal - aVal;
+    });
+    
+    // When filtering by distress, return all matches; otherwise apply limit
+    const final = minDistress ? filtered : filtered.slice(0, parseInt(limit));
+    
+    res.json({
+      count: final.length,
+      offset: parseInt(offset),
+      properties: final
+    });
+    
+  } catch (error) {
+    console.error('Properties error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/properties/:bbl
+ * Returns single property with sales history
+ */
+app.get('/api/properties/:bbl', async (req, res) => {
+  try {
+    const { bbl } = req.params;
+    
+    // Get property with violations
+    const { data: property, error: propError } = await supabase
+      .from('properties')
+      .select('*, violations(violation_type, status)')
+      .eq('bbl', bbl)
+      .single();
+    
+    if (propError) throw propError;
+    
+    if (!property) {
+      return res.status(404).json({ error: 'Property not found' });
+    }
+    
+    // Calculate distress score on the fly
+    const openViolations = (property.violations || []).filter(v => v.status === 'Open');
+    const hpdCount = openViolations.filter(v => v.violation_type === 'HPD').length;
+    const dobCount = openViolations.filter(v => v.violation_type === 'DOB').length;
+    const calculatedScore = Math.min(hpdCount, 20) + Math.min(dobCount * 5, 30);
+    
+    // Get sales history
+    const { data: sales } = await supabase
+      .from('sales')
+      .select('*')
+      .eq('bbl', bbl)
+      .order('sale_date', { ascending: false });
+
+    // Get permits
+    const { data: permits } = await supabase
+      .from('permits')
+      .select('*')
+      .eq('bbl', bbl)
+      .order('issue_date', { ascending: false });
+
+    res.json({
+      ...property,
+      distress_score: calculatedScore, // Override DB value with real-time calc
+      violation_count: openViolations.length,
+      violations: openViolations, // Return full violations list
+      sales: sales || [],
+      permits: permits || []
+    });
+    
+  } catch (error) {
+    console.error('Property detail error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/properties/:bbl/comps
+ * Returns comparable sales for a property
+ */
+app.get('/api/properties/:bbl/comps', async (req, res) => {
+  console.log(`[Comps] Request received for BBL: ${req.params.bbl}`);
+  try {
+    const { bbl } = req.params;
+    const { radius = 0.5, limit = 5 } = req.query;
+    
+    // 1. Get subject property
+    const { data: subject, error: subError } = await supabase
+      .from('properties')
+      .select('*')
+      .eq('bbl', bbl)
+      .single();
+      
+    if (subError || !subject) throw new Error('Subject property not found');
+    
+    // 2. Define search criteria
+    if (!subject.lat || !subject.lng) {
+      return res.json({ subject, comps: [], marketStats: null, note: 'No coordinates for subject' });
+    }
+
+    const latBuffer = parseFloat(radius) / 69;
+    const lngBuffer = parseFloat(radius) / 53;
+    
+    const minLat = subject.lat - latBuffer;
+    const maxLat = subject.lat + latBuffer;
+    const minLng = subject.lng - lngBuffer;
+    const maxLng = subject.lng + lngBuffer;
+    
+    const minArea = (subject.bldgarea || 0) * 0.25;
+    const maxArea = (subject.bldgarea || 0) * 2.5;
+    
+    // Define Class Groups
+    const bldgClass = subject.bldgclass || '';
+    const prefix = bldgClass.charAt(0);
+    let allowedPrefixes = [];
+    
+    if (['A','B'].includes(prefix)) {
+      allowedPrefixes = ['A','B'];
+    } else if (['C','D','S','R'].includes(prefix)) {
+      allowedPrefixes = ['C','D','S','R'];
+    } else if (prefix === 'O') {
+      allowedPrefixes = ['O'];
+    } else if (prefix === 'K') {
+      allowedPrefixes = ['K'];
+    } else if (prefix === 'L') {
+      allowedPrefixes = ['L'];
+    } else if (['E','F','G'].includes(prefix)) {
+      allowedPrefixes = ['E','F','G'];
+    } else {
+      allowedPrefixes = [prefix];
+    }
+
+    // 3. Query Sales
+    const { data: candidates, error: candError } = await supabase
+      .from('sales')
+      .select(`
+        *,
+        properties!inner (
+          address, bldgclass, bldgarea, lat, lng, yearbuilt
+        )
+      `)
+      .gte('sale_date', '2022-01-01')
+      .neq('bbl', bbl)
+      .gt('sale_price', 100000)
+      .order('sale_date', { ascending: false })
+      .limit(200);
+      
+    if (candError) throw candError;
+
+    // 4. Filter in JS
+    const comps = candidates.filter(s => {
+      const p = s.properties;
+      if (!p) return false;
+      const pClass = p.bldgclass ? p.bldgclass.charAt(0) : '';
+      if (allowedPrefixes.length > 0 && !allowedPrefixes.includes(pClass)) return false;
+      if (subject.bldgarea > 1000) {
+         if (p.bldgarea < minArea || p.bldgarea > maxArea) return false;
+      }
+      if (p.lat < minLat || p.lat > maxLat) return false;
+      if (p.lng < minLng || p.lng > maxLng) return false;
+      return true;
+    }).slice(0, parseInt(limit));
+
+    // 5. Calculate price_per_sf on the fly if not in DB
+    const enrichedComps = comps.map(c => {
+      const bldgarea = c.properties.bldgarea || 0;
+      const calculatedPSF = bldgarea > 0 && c.sale_price > 0 
+        ? Math.round(c.sale_price / bldgarea)
+        : null;
+      
+      return {
+        bbl: c.bbl,
+        address: c.properties.address,
+        sale_date: c.sale_date,
+        sale_price: c.sale_price,
+        bldgarea: bldgarea,
+        price_per_sf: c.price_per_sf || calculatedPSF, // Use DB value or calculate
+        dist_miles: Math.sqrt(Math.pow((c.properties.lat - subject.lat) * 69, 2) + Math.pow((c.properties.lng - subject.lng) * 53, 2)).toFixed(2)
+      };
+    });
+    
+    // 6. Stats
+    let avgPricePerSF = 0;
+    let medianPricePerSF = 0;
+    if (enrichedComps.length > 0) {
+      const prices = enrichedComps.filter(c => c.price_per_sf > 0).map(c => c.price_per_sf);
+      if (prices.length > 0) {
+        avgPricePerSF = Math.round(prices.reduce((a,b) => a+b, 0) / prices.length);
+        prices.sort((a,b) => a-b);
+        const mid = Math.floor(prices.length / 2);
+        medianPricePerSF = prices.length % 2 !== 0 ? prices[mid] : (prices[mid-1] + prices[mid]) / 2;
+      }
+    }
+
+    res.json({
+      subject: {
+        bbl: subject.bbl,
+        address: subject.address,
+        bldgarea: subject.bldgarea,
+        bldgclass: subject.bldgclass
+      },
+      comps: enrichedComps,
+      marketStats: {
+        avgPricePerSF,
+        medianPricePerSF,
+        count: enrichedComps.length
+      }
+    });
+  } catch (error) {
+    console.error('Comps error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/sales
+ * Returns recent sales with filtering
+ * 
+ * Query params:
+ *   bldgclass - Building class filter
+ *   minPrice - Minimum sale price
+ *   maxPrice - Maximum sale price
+ *   days - Sales from last N days
+ *   limit - Max results (default 50)
+ */
+app.get('/api/sales', async (req, res) => {
+  try {
+    const {
+      bldgclass,
+      minPrice,
+      maxPrice,
+      days = 365,
+      limit = 50
+    } = req.query;
+    
+    // Calculate date cutoff
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - parseInt(days));
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    
+    let query = supabase
+      .from('sales')
+      .select(`
+        *,
+        properties (
+          address,
+          bldgclass,
+          ownername,
+          zonedist1
+        )
+      `)
+      .gte('sale_date', cutoffStr)
+      .order('sale_date', { ascending: false })
+      .limit(parseInt(limit));
+    
+    if (minPrice) {
+      query = query.gte('sale_price', parseInt(minPrice));
+    }
+    
+    if (maxPrice) {
+      query = query.lte('sale_price', parseInt(maxPrice));
+    }
+    
+    const { data, error } = await query;
+    
+    if (error) throw error;
+    
+    // Filter by building class if specified (from joined property)
+    let filtered = data;
+    if (bldgclass) {
+      filtered = data.filter(s => 
+        s.properties?.bldgclass?.startsWith(bldgclass)
+      );
+    }
+    
+    res.json({
+      count: filtered.length,
+      sales: filtered
+    });
+    
+  } catch (error) {
+    console.error('Sales error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/owners/:name
+ * Returns all properties for an owner with portfolio analytics
+ */
+app.get('/api/owners/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    // 1. Fetch properties with full details
+    const { data: properties, error } = await supabase
+      .from('properties')
+      .select('*')
+      .ilike('ownername', `%${name}%`)
+      .order('assesstot', { ascending: false });
+    
+    if (error) throw error;
+
+    if (!properties || properties.length === 0) {
+      return res.json({ searchTerm: name, matchCount: 0, owners: [] });
+    }
+    
+    // 2. Fetch violations for these properties
+    const bbls = properties.map(p => p.bbl);
+    const { data: violations } = await supabase
+      .from('violations')
+      .select('bbl, status, violation_type')
+      .in('bbl', bbls);
+    
+    // Count violations by BBL
+    const violationsByBbl = {};
+    (violations || []).forEach(v => {
+      if (!violationsByBbl[v.bbl]) violationsByBbl[v.bbl] = { open: 0, total: 0 };
+      violationsByBbl[v.bbl].total++;
+      if (v.status === 'Open') {
+        violationsByBbl[v.bbl].open++;
+      }
+    });
+    
+    // 3. Fetch sales to calculate holding period
+    const { data: sales } = await supabase
+      .from('sales')
+      .select('bbl, sale_date, sale_price')
+      .in('bbl', bbls)
+      .order('sale_date', { ascending: false });
+
+    // Map BBL -> Latest Sale
+    const latestSales = {};
+    (sales || []).forEach(s => {
+      if (!latestSales[s.bbl]) latestSales[s.bbl] = s;
+    });
+    
+    // 4. Group and Aggregate
+    const byOwner = {};
+    properties.forEach(p => {
+      const owner = p.ownername || 'Unknown';
+      if (!byOwner[owner]) {
+        byOwner[owner] = {
+          name: owner,
+          entityType: detectEntityType(owner),
+          properties: [],
+          totalAssessed: 0,
+          totalSF: 0,
+          totalLotArea: 0,
+          blocks: new Set(),
+          holdingPeriods: [],
+          totalOpenViolations: 0,
+          totalViolations: 0
+        };
+      }
+      
+      const ownerData = byOwner[owner];
+      
+      // Add violation counts to property
+      const viol = violationsByBbl[p.bbl];
+      p.openViolations = viol ? viol.open : 0;
+      p.totalViolations = viol ? viol.total : 0;
+      
+      ownerData.properties.push(p);
+      ownerData.totalAssessed += p.assesstot || 0;
+      ownerData.totalSF += p.bldgarea || 0;
+      ownerData.totalLotArea += p.lotarea || 0;
+      
+      // Extract block from BBL (positions 1-6 for Manhattan)
+      if (p.bbl && p.bbl.length >= 6) {
+        ownerData.blocks.add(p.bbl.substring(1, 6));
+      }
+      
+      // Holding period calculation
+      const lastSale = latestSales[p.bbl];
+      if (lastSale && lastSale.sale_date) {
+        const years = (new Date() - new Date(lastSale.sale_date)) / (365.25 * 24 * 60 * 60 * 1000);
+        ownerData.holdingPeriods.push(years);
+      }
+      
+      // Violations
+      if (viol) {
+        ownerData.totalOpenViolations += viol.open;
+        ownerData.totalViolations += viol.total;
+      }
+    });
+    
+    // 5. Calculate derived metrics for each owner
+    const owners = Object.values(byOwner).map(owner => {
+      const blockArray = Array.from(owner.blocks);
+      
+      // Concentration score: 1 = all on same block, 0 = spread across many blocks
+      const concentrationScore = owner.properties.length > 1 
+        ? 1 - Math.min(blockArray.length / owner.properties.length, 1)
+        : 0;
+      
+      // Average holding period
+      const avgHoldingPeriod = owner.holdingPeriods.length > 0
+        ? owner.holdingPeriods.reduce((a, b) => a + b, 0) / owner.holdingPeriods.length
+        : null;
+      
+      return {
+        name: owner.name,
+        entityType: owner.entityType,
+        propertyCount: owner.properties.length,
+        properties: owner.properties,
+        totalAssessed: owner.totalAssessed,
+        totalSF: owner.totalSF,
+        totalLotArea: owner.totalLotArea,
+        avgHoldingPeriod: avgHoldingPeriod ? Math.round(avgHoldingPeriod * 10) / 10 : null,
+        totalOpenViolations: owner.totalOpenViolations,
+        totalViolations: owner.totalViolations,
+        concentrationScore: Math.round(concentrationScore * 100) / 100,
+        blocks: blockArray
+      };
+    });
+    
+    // Sort by total assessed value
+    owners.sort((a, b) => b.totalAssessed - a.totalAssessed);
+    
+    res.json({
+      searchTerm: name,
+      matchCount: properties.length,
+      owners
+    });
+    
+  } catch (error) {
+    console.error('Owner search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Detect entity type from owner name
+ */
+function detectEntityType(name) {
+  if (!name) return 'Unknown';
+  const upper = name.toUpperCase();
+  
+  if (upper.includes(' LLC') || upper.includes(' L.L.C')) return 'LLC';
+  if (upper.includes(' LP') || upper.includes(' L.P')) return 'LP';
+  if (upper.includes(' INC') || upper.includes(' CORP')) return 'Corporation';
+  if (upper.includes(' TRUST') || upper.includes(' TRUSTEES')) return 'Trust';
+  if (upper.includes(' PARTNERS') || upper.includes(' PARTNERSHIP')) return 'Partnership';
+  if (upper.includes(' ASSOC') || upper.includes(' ASSOCIATION')) return 'Association';
+  if (upper.includes('CITY OF') || upper.includes('STATE OF') || upper.includes('USA ')) return 'Government';
+  if (upper.includes(' CO ') || upper.includes(' COMPANY')) return 'Company';
+  
+  // If no patterns match, likely individual
+  // Check for common individual name patterns (LASTNAME FIRSTNAME or similar)
+  const words = name.trim().split(/\s+/);
+  if (words.length <= 3 && !upper.includes(',')) {
+    return 'Individual';
+  }
+  
+  return 'Unknown';
+}
+
+/**
+ * GET /api/opportunities
+ * Returns properties ranked by investment opportunity signals
+ */
+app.get('/api/opportunities', async (req, res) => {
+  try {
+    const { limit = 25 } = req.query;
+    
+    // Get properties with high FAR gap
+    const { data: properties, error } = await supabase
+      .from('properties')
+      .select('*')
+      .gt('far_gap', 0.5) // Lowered threshold to catch more potential
+      .order('far_gap', { ascending: false })
+      .limit(parseInt(limit) * 2); // Fetch more to filter later
+    
+    if (error) throw error;
+    
+    // Get latest sales for these properties
+    const bbls = properties.map(p => p.bbl);
+    const { data: sales, error: salesError } = await supabase
+      .from('sales')
+      .select('bbl, sale_date, sale_price')
+      .in('bbl', bbls)
+      .order('sale_date', { ascending: false });
+      
+    if (salesError) throw salesError;
+    
+    // Map latest sale to property
+    const latestSales = {};
+    sales.forEach(s => {
+      if (!latestSales[s.bbl]) { // First one is latest due to sort
+        latestSales[s.bbl] = s;
+      }
+    });
+
+    // Calculate refined opportunity score
+    const scored = properties.map(p => {
+      let score = 0;
+      const sale = latestSales[p.bbl];
+      
+      // 1. FAR Gap (0-40 points)
+      // Cap at 40. 1.0 FAR gap = 10pts, 4.0 FAR gap = 40pts
+      score += Math.min((p.far_gap || 0) * 10, 40);
+      
+      // 2. Ownership Tenure (0-20 points)
+      // Longer tenure = higher score (potential motivation to sell)
+      let tenureYears = 0;
+      if (sale && sale.sale_date) {
+        const saleDate = new Date(sale.sale_date);
+        const now = new Date();
+        tenureYears = (now - saleDate) / (1000 * 60 * 60 * 24 * 365);
+      } else {
+        // Fallback to yearbuilt if no sale, but cap it (less reliable)
+        // or assume long tenure if no recent sale found
+        tenureYears = 10; 
+      }
+      score += Math.min(tenureYears * 1, 20);
+      
+      // 3. Assessment Value Ratio (0-20 points)
+      // If Assessed Value is high relative to Last Sale, it might be a deal
+      // NYC Class 4 Assessed is ~45% of market.
+      // If (Assessed / Sale) > 0.45, it means Assessed > 45% of Sale, implying Sale was low.
+      let valueRatio = 0;
+      if (sale && sale.sale_price > 1000) { // Ignore nominal sales
+        valueRatio = (p.assesstot || 0) / sale.sale_price;
+        // Score: 0.45 ratio = 10 pts. 0.9 ratio = 20 pts.
+        score += Math.min(valueRatio * 20, 20);
+      }
+      
+      // 4. Building Class / Size Bonus (0-20 points)
+      // Large lots get bonus
+      score += Math.min((p.lotarea || 0) / 2000, 10);
+      // Multifamily (D) gets bonus
+      if (p.bldgclass && p.bldgclass.startsWith('D')) {
+        score += 10;
+      }
+
+      return {
+        ...p,
+        tenure: Math.round(tenureYears * 10) / 10,
+        lastSaleDate: sale ? sale.sale_date : null,
+        lastSalePrice: sale ? sale.sale_price : null,
+        assessmentRatio: valueRatio,
+        opportunityScore: Math.round(score)
+      };
+    });
+    
+    // Sort by score
+    scored.sort((a, b) => b.opportunityScore - a.opportunityScore);
+    
+    // Return requested limit
+    const finalResults = scored.slice(0, parseInt(limit));
+    
+    res.json({
+      count: finalResults.length,
+      properties: finalResults
+    });
+    
+  } catch (error) {
+    console.error('Opportunities error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/properties/:bbl/comps
+ * Returns comparable sales for a property
+ */
+app.get('/api/properties/:bbl/comps', async (req, res) => {
+  console.log(`[Comps] Request received for BBL: ${req.params.bbl}`);
+  try {
+    const { bbl } = req.params;
+    const { radius = 0.5, limit = 5 } = req.query;
+    
+    // 1. Get subject property
+    const { data: subject, error: subError } = await supabase
+      .from('properties')
+      .select('*')
+      .eq('bbl', bbl)
+      .single();
+      
+    if (subError || !subject) throw new Error('Subject property not found');
+    
+    // 2. Define search criteria
+    if (!subject.lat || !subject.lng) {
+      return res.json({ subject, comps: [], marketStats: null, note: 'No coordinates for subject' });
+    }
+
+    const latBuffer = parseFloat(radius) / 69; // 1 deg lat = ~69 miles
+    const lngBuffer = parseFloat(radius) / 53; // 1 deg lng = ~53 miles (at NYC lat)
+    
+    const minLat = subject.lat - latBuffer;
+    const maxLat = subject.lat + latBuffer;
+    const minLng = subject.lng - lngBuffer;
+    const maxLng = subject.lng + lngBuffer;
+    
+    const minArea = (subject.bldgarea || 0) * 0.25; // Widened to 0.25x
+    const maxArea = (subject.bldgarea || 0) * 2.5;  // Widened to 2.5x
+    
+    // Define Class Groups for better matching based on NYC Dept of Finance classifications
+    const bldgClass = subject.bldgclass || '';
+    const prefix = bldgClass.charAt(0);
+    let allowedPrefixes = [];
+    
+    if (['A','B'].includes(prefix)) {
+      // 1-2 Family Dwellings (Small Residential)
+      allowedPrefixes = ['A','B'];
+    } else if (['C','D','S','R'].includes(prefix)) {
+      // Multifamily, Mixed-Use, Condos, Co-ops (Apartments)
+      // Allows comparing Walk-ups (C), Elevator (D), Mixed (S), and Condos (R)
+      allowedPrefixes = ['C','D','S','R'];
+    } else if (prefix === 'O') {
+      // Office Only
+      allowedPrefixes = ['O'];
+    } else if (prefix === 'K') {
+      // Retail Only
+      allowedPrefixes = ['K'];
+    } else if (prefix === 'L') {
+      // Lofts
+      allowedPrefixes = ['L'];
+    } else if (['E','F','G'].includes(prefix)) {
+      // Industrial / Warehouse / Garage
+      allowedPrefixes = ['E','F','G'];
+    } else {
+      // Fallback: strict match
+      allowedPrefixes = [prefix];
+    }
+
+    // 3. Query Sales that match criteria
+    const { data: candidates, error: candError } = await supabase
+      .from('sales')
+      .select(`
+        *,
+        properties!inner (
+          address, bldgclass, bldgarea, lat, lng, yearbuilt
+        )
+      `)
+      .gte('sale_date', '2022-01-01')
+      .neq('bbl', bbl)
+      .gt('sale_price', 100000)
+      .order('sale_date', { ascending: false })
+      .limit(200); // Fetch more candidates
+      
+    if (candError) throw candError;
+
+    // 4. Filter in JS
+    const comps = candidates.filter(s => {
+      const p = s.properties;
+      if (!p) return false;
+      
+      // Class Group Match
+      const pClass = p.bldgclass ? p.bldgclass.charAt(0) : '';
+      if (allowedPrefixes.length > 0 && !allowedPrefixes.includes(pClass)) return false;
+      
+      // Size match (skip if subject size is 0 or null)
+      if (subject.bldgarea > 1000) {
+         if (p.bldgarea < minArea || p.bldgarea > maxArea) return false;
+      }
+      
+      // Location match (bounding box)
+      if (p.lat < minLat || p.lat > maxLat) return false;
+      if (p.lng < minLng || p.lng > maxLng) return false;
+      
+      return true;
+    }).slice(0, parseInt(limit));
+
+    // 5. Calculate Stats
+    let avgPricePerSF = 0;
+    let medianPricePerSF = 0;
+    
+    if (comps.length > 0) {
+      const prices = comps
+        .filter(c => c.price_per_sf > 0)
+        .map(c => c.price_per_sf);
+        
+      if (prices.length > 0) {
+        avgPricePerSF = Math.round(prices.reduce((a,b) => a+b, 0) / prices.length);
+        prices.sort((a,b) => a-b);
+        const mid = Math.floor(prices.length / 2);
+        medianPricePerSF = prices.length % 2 !== 0 ? prices[mid] : (prices[mid-1] + prices[mid]) / 2;
+      }
+    }
+
+    res.json({
+      subject: {
+        bbl: subject.bbl,
+        address: subject.address,
+        bldgarea: subject.bldgarea,
+        bldgclass: subject.bldgclass
+      },
+      comps: comps.map(c => ({
+        bbl: c.bbl,
+        address: c.properties.address,
+        sale_date: c.sale_date,
+        sale_price: c.sale_price,
+        bldgarea: c.properties.bldgarea,
+        price_per_sf: c.price_per_sf,
+        dist_miles: Math.sqrt(
+          Math.pow((c.properties.lat - subject.lat) * 69, 2) + 
+          Math.pow((c.properties.lng - subject.lng) * 53, 2)
+        ).toFixed(2)
+      })),
+      marketStats: {
+        avgPricePerSF,
+        medianPricePerSF,
+        count: comps.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Comps error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// PORTFOLIO ROUTES (Authenticated)
+// =============================================
+
+/**
+ * GET /api/portfolio
+ * Get user's portfolio (BBLs only for now)
+ */
+app.get('/api/portfolio', requireAuth, async (req, res) => {
+  try {
+    // For now, return empty array - will be enhanced later
+    // In future: query portfolio_properties table
+    res.json({ bbls: [] });
+  } catch (error) {
+    console.error('Get portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/portfolio
+ * Add property to portfolio
+ */
+app.post('/api/portfolio', requireAuth, async (req, res) => {
+  try {
+    const { bbl } = req.body;
+    
+    if (!bbl) {
+      return res.status(400).json({ error: 'BBL required' });
+    }
+    
+    // For now, just return success
+    // In future: insert into portfolio_properties table
+    res.json({ success: true, message: 'Property added to portfolio' });
+    
+  } catch (error) {
+    console.error('Add to portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/portfolio/:bbl
+ * Remove property from portfolio
+ */
+app.delete('/api/portfolio/:bbl', requireAuth, async (req, res) => {
+  try {
+    const { bbl } = req.params;
+    
+    // For now, just return success
+    // In future: delete from portfolio_properties table
+    res.json({ success: true, message: 'Property removed from portfolio' });
+    
+  } catch (error) {
+    console.error('Remove from portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// DASHBOARD ROUTES
+// =============================================
+
+/**
+ * POST /api/dashboard/summary
+ * Get portfolio summary stats (accepts BBLs in body since no DB persistence yet)
+ */
+app.post('/api/dashboard/summary', async (req, res) => {
+  try {
+    const { bbls } = req.body;
+    
+    if (!bbls || !Array.isArray(bbls) || bbls.length === 0) {
+      return res.json({
+        propertyCount: 0,
+        totalAssessed: 0,
+        avgFarGap: 0,
+        newViolations: 0
+      });
+    }
+    
+    // Get properties for these BBLs
+    const { data: properties, error: propError } = await supabase
+      .from('properties')
+      .select('bbl, assesstot, far_gap, distress_score')
+      .in('bbl', bbls);
+    
+    if (propError) throw propError;
+    
+    // Get recent violations (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const { data: violations, error: violError } = await supabase
+      .from('violations')
+      .select('bbl')
+      .in('bbl', bbls)
+      .eq('status', 'Open')
+      .gte('issue_date', sevenDaysAgo.toISOString().split('T')[0]);
+    
+    if (violError) throw violError;
+    
+    // Calculate stats
+    const totalAssessed = properties.reduce((sum, p) => sum + (p.assesstot || 0), 0);
+    const avgFarGap = properties.length > 0
+      ? properties.reduce((sum, p) => sum + (p.far_gap || 0), 0) / properties.length
+      : 0;
+    
+    res.json({
+      propertyCount: properties.length,
+      totalAssessed: totalAssessed,
+      avgFarGap: avgFarGap.toFixed(2),
+      newViolations: violations?.length || 0
+    });
+    
+  } catch (error) {
+    console.error('Dashboard summary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/dashboard/market-pulse
+ * Get market-wide statistics
+ */
+app.get('/api/dashboard/market-pulse', async (req, res) => {
+  try {
+    // Sales this month
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const { data: recentSales, error: salesError } = await supabase
+      .from('sales')
+      .select('sale_price, price_per_sf')
+      .gte('sale_date', thirtyDaysAgo.toISOString().split('T')[0]);
+    
+    if (salesError) throw salesError;
+    
+    // Calculate avg price per SF
+    const totalPriceSF = recentSales.reduce((sum, s) => sum + (s.price_per_sf || 0), 0);
+    const avgPriceSF = recentSales.length > 0 ? Math.round(totalPriceSF / recentSales.length) : 0;
+    
+    res.json({
+      salesThisMonth: recentSales.length,
+      avgPriceSF: avgPriceSF,
+      avgByClass: [], // Simplified for now
+      totalVolume: recentSales.reduce((sum, s) => sum + (s.sale_price || 0), 0)
+    });
+    
+  } catch (error) {
+    console.error('Market pulse error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/dashboard/opportunities
+ * Get top opportunities excluding portfolio BBLs
+ */
+app.post('/api/dashboard/opportunities', async (req, res) => {
+  try {
+    const { bbls } = req.body;
+    const excludeBbls = bbls || [];
+    
+    let query = supabase
+      .from('properties')
+      .select('*')
+      .gte('far_gap', 2)
+      .order('far_gap', { ascending: false })
+      .limit(5);
+    
+    if (excludeBbls.length > 0) {
+      query = query.not('bbl', 'in', `(${excludeBbls.join(',')})`);
+    }
+    
+    const { data: opportunities, error } = await query;
+    
+    if (error) throw error;
+    
+    res.json({ opportunities: opportunities || [] });
+    
+  } catch (error) {
+    console.error('Dashboard opportunities error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// SAVED SEARCHES ROUTES
+// =============================================
+
+/**
+ * GET /api/searches
+ * Get user's saved searches
+ */
+app.get('/api/searches', requireAuth, async (req, res) => {
+  try {
+    const { data: searches, error } = await supabase
+      .from('saved_searches')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    res.json({ searches: searches || [] });
+    
+  } catch (error) {
+    console.error('Get searches error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/searches
+ * Create saved search
+ */
+app.post('/api/searches', requireAuth, async (req, res) => {
+  try {
+    const { name, filters, alert_enabled, alert_frequency } = req.body;
+    
+    if (!name || !filters) {
+      return res.status(400).json({ error: 'Name and filters required' });
+    }
+    
+    const { data: search, error } = await supabase
+      .from('saved_searches')
+      .insert({
+        user_id: req.user.id,
+        name,
+        filters,
+        alert_enabled: alert_enabled || false,
+        alert_frequency: alert_frequency || 'daily'
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ search });
+    
+  } catch (error) {
+    console.error('Create search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/searches/:id
+ * Update saved search
+ */
+app.put('/api/searches/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, filters, alert_enabled, alert_frequency } = req.body;
+    
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (filters !== undefined) updates.filters = filters;
+    if (alert_enabled !== undefined) updates.alert_enabled = alert_enabled;
+    if (alert_frequency !== undefined) updates.alert_frequency = alert_frequency;
+    updates.updated_at = new Date().toISOString();
+    
+    const { data: search, error } = await supabase
+      .from('saved_searches')
+      .update(updates)
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ search });
+    
+  } catch (error) {
+    console.error('Update search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/searches/:id
+ * Delete saved search
+ */
+app.delete('/api/searches/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { error } = await supabase
+      .from('saved_searches')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id);
+    
+    if (error) throw error;
+    
+    res.json({ success: true });
+    
+  } catch (error) {
+    console.error('Delete search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/searches/:id/run
+ * Execute saved search and return matching properties
+ */
+app.get('/api/searches/:id/run', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get the saved search
+    const { data: search, error: searchError } = await supabase
+      .from('saved_searches')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .single();
+    
+    if (searchError) throw searchError;
+    
+    // Apply filters from saved search
+    const filters = search.filters || {};
+    
+    // Build query
+    let query = supabase
+      .from('properties')
+      .select('*')
+      .limit(200);
+    
+    // Apply filters (same logic as /api/data)
+    if (filters.bldgclass && filters.bldgclass !== 'all') {
+      const classConfig = FILTER_CONFIG.bldgclass[filters.bldgclass];
+      if (classConfig) {
+        const prefixes = classConfig.prefixes.map(p => `${p}%`);
+        query = query.or(prefixes.map(p => `bldgclass.like.${p}`).join(','));
+      }
+    }
+    
+    if (filters.minFarGap) {
+      query = query.gte('far_gap', parseFloat(filters.minFarGap));
+    }
+    
+    if (filters.minDistress) {
+      query = query.gte('distress_score', parseInt(filters.minDistress));
+    }
+    
+    // Execute query
+    const { data: properties, error: propError } = await query;
+    
+    if (propError) throw propError;
+    
+    res.json({
+      search: search,
+      properties: properties || [],
+      count: properties?.length || 0
+    });
+    
+  } catch (error) {
+    console.error('Run search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/heatmap
+ * Returns aggregated data for heatmap visualization
+ * 
+ * Query params:
+ *   metric - one of: 'opportunity', 'price', 'distress'
+ *   resolution - grid cell size in degrees (default 0.002)
+ */
+app.get('/api/heatmap', async (req, res) => {
+  try {
+    const { metric = 'opportunity', resolution = 0.002 } = req.query;
+    const gridSize = parseFloat(resolution);
+    
+    let cells = [];
+    let min = 0;
+    let max = 100;
+    
+    if (metric === 'opportunity') {
+      // Aggregate properties by FAR gap
+      const { data, error } = await supabase
+        .from('properties')
+        .select('lat, lng, far_gap')
+        .gt('far_gap', 0)
+        .not('lat', 'is', null)
+        .not('lng', 'is', null);
+      
+      if (error) throw error;
+      
+      // Grid aggregation in JS
+      const grid = {};
+      data.forEach(p => {
+        const gridLat = Math.round(p.lat / gridSize) * gridSize;
+        const gridLng = Math.round(p.lng / gridSize) * gridSize;
+        const key = `${gridLat},${gridLng}`;
+        
+        if (!grid[key]) {
+          grid[key] = { lat: gridLat, lng: gridLng, values: [], count: 0 };
+        }
+        grid[key].values.push(p.far_gap);
+        grid[key].count++;
+      });
+      
+      cells = Object.values(grid).map(cell => ({
+        lat: cell.lat,
+        lng: cell.lng,
+        value: Math.round((cell.values.reduce((a, b) => a + b, 0) / cell.count) * 10), // Scale to 0-100
+        count: cell.count
+      }));
+      
+      max = Math.max(...cells.map(c => c.value), 100);
+      
+    } else if (metric === 'price') {
+      // Aggregate sales by price per SF
+      const { data, error } = await supabase
+        .from('sales')
+        .select(`
+          sale_price,
+          properties!inner (lat, lng, bldgarea)
+        `)
+        .gte('sale_date', '2022-01-01')
+        .gt('sale_price', 100000);
+      
+      if (error) throw error;
+      
+      // Calculate price_per_sf and grid
+      const grid = {};
+      data.forEach(s => {
+        if (!s.properties || !s.properties.lat || !s.properties.lng || !s.properties.bldgarea) return;
+        
+        const pricePerSF = s.sale_price / s.properties.bldgarea;
+        if (pricePerSF <= 0 || pricePerSF > 10000) return; // Filter outliers
+        
+        const gridLat = Math.round(s.properties.lat / gridSize) * gridSize;
+        const gridLng = Math.round(s.properties.lng / gridSize) * gridSize;
+        const key = `${gridLat},${gridLng}`;
+        
+        if (!grid[key]) {
+          grid[key] = { lat: gridLat, lng: gridLng, values: [], count: 0 };
+        }
+        grid[key].values.push(pricePerSF);
+        grid[key].count++;
+      });
+      
+      cells = Object.values(grid).map(cell => ({
+        lat: cell.lat,
+        lng: cell.lng,
+        value: Math.round(cell.values.reduce((a, b) => a + b, 0) / cell.count),
+        count: cell.count
+      }));
+      
+      min = Math.min(...cells.map(c => c.value), 0);
+      max = Math.max(...cells.map(c => c.value), 1000);
+      
+    } else if (metric === 'distress') {
+      // Aggregate violations by location
+      const { data, error } = await supabase
+        .from('violations')
+        .select(`
+          bbl,
+          properties!inner (lat, lng)
+        `)
+        .eq('status', 'Open');
+      
+      if (error) throw error;
+      
+      // Grid aggregation
+      const grid = {};
+      data.forEach(v => {
+        if (!v.properties || !v.properties.lat || !v.properties.lng) return;
+        
+        const gridLat = Math.round(v.properties.lat / gridSize) * gridSize;
+        const gridLng = Math.round(v.properties.lng / gridSize) * gridSize;
+        const key = `${gridLat},${gridLng}`;
+        
+        if (!grid[key]) {
+          grid[key] = { lat: gridLat, lng: gridLng, count: 0, bbls: new Set() };
+        }
+        grid[key].count++;
+        grid[key].bbls.add(v.bbl);
+      });
+      
+      cells = Object.values(grid).map(cell => ({
+        lat: cell.lat,
+        lng: cell.lng,
+        value: cell.count,
+        count: cell.bbls.size // Unique properties
+      }));
+      
+      max = Math.max(...cells.map(c => c.value), 10);
+      
+    } else {
+      return res.status(400).json({ error: 'Invalid metric. Use: opportunity, price, or distress' });
+    }
+    
+    res.json({
+      metric,
+      cells,
+      min,
+      max,
+      generated: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Heatmap error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============ HEALTH CHECK ============
+
+app.get('/api/health', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('properties')
+      .select('bbl')
+      .limit(1);
+    
+    if (error) throw error;
+    
+    res.json({
+      status: 'healthy',
+      database: 'connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      database: 'disconnected',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/config
+ * Returns public configuration
+ */
+app.get('/api/config', (req, res) => {
+  const token = process.env.MAPBOX_ACCESS_TOKEN;
+  console.log('Config requested. Serving token:', token ? token.substring(0, 15) + '...' : 'NONE');
+  res.json({
+    mapboxToken: token
+  });
+});
+
+// =============================================
+// FALLBACK
+// =============================================
+
+// Serve frontend for all non-API routes
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// =============================================
+// START
+// =============================================
+
+app.listen(PORT, () => {
+  console.log(`
+═══════════════════════════════════════════
+  NYC CRE Explorer API
+═══════════════════════════════════════════
+  Server:    http://localhost:${PORT}
+  Database:  Supabase (PostgreSQL)
+  
+  Endpoints:
+    GET /api/stats
+    GET /api/properties
+    GET /api/properties/:bbl
+    GET /api/properties/:bbl/comps
+    GET /api/sales
+    GET /api/owners/:name
+    GET /api/opportunities
+    GET /api/health
+═══════════════════════════════════════════
+  `);
+});

@@ -1,0 +1,5240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NYC CRE | Midtown South</title>
+  
+  <!-- Mapbox GL JS -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg-dark: #1e293b;
+      --bg-panel: #ffffff;
+      --text: #334155;
+      --text-light: #64748b;
+      --border: #e2e8f0;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+    }
+    
+    /* Layout */
+    .app-container {
+      display: flex;
+      height: 100vh;
+    }
+    
+    /* Left Sidebar */
+    .sidebar {
+      width: 380px;
+      background: var(--bg-panel);
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      z-index: 100;
+    }
+    
+    .sidebar-header {
+      padding: 16px 20px;
+      background: var(--bg-dark);
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    
+    .sidebar-header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .sidebar-header p {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      color: var(--text-light);
+      transition: all 0.2s;
+    }
+    
+    .tab:hover {
+      color: var(--text);
+      background: #f8fafc;
+    }
+    
+    .tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    
+    /* Search */
+    .search-container {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .search-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    
+    .search-input:focus {
+      border-color: var(--primary);
+    }
+    
+    .search-filters {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    
+    .filter-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .filter-btn:hover, .filter-btn.active {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+    
+    /* Property List */
+    .property-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+    
+    .property-item {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .property-item:hover {
+      background: #f8fafc;
+    }
+    
+    .property-item.active {
+      background: #eff6ff;
+      border-left: 3px solid var(--primary);
+    }
+    
+    .property-address {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    
+    .property-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    
+    .property-price {
+      font-weight: 600;
+      color: var(--success);
+    }
+    
+    /* Sales List */
+    .sale-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    
+    .sale-item:hover {
+      background: #f8fafc;
+    }
+    
+    .sale-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    
+    .sale-address {
+      font-weight: 600;
+      font-size: 13px;
+    }
+    
+    .sale-price {
+      font-weight: 700;
+      color: var(--primary);
+    }
+    
+    .sale-details {
+      display: flex;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--text-light);
+    }
+    
+    /* Map */
+    .map-container {
+      flex: 1;
+      position: relative;
+    }
+    
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    
+    /* Property Panel (slides in from right) */
+    .property-panel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 420px;
+      height: 100%;
+      background: var(--bg-panel);
+      box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .property-panel.open {
+      transform: translateX(0);
+    }
+    
+    .panel-header {
+      padding: 16px 20px;
+      background: var(--bg-dark);
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    
+    .panel-close {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+    }
+    
+    .panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    
+    .panel-section {
+      margin-bottom: 24px;
+    }
+    
+    .panel-section h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-light);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .data-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    
+    .data-item {
+      padding: 10px;
+      background: #f8fafc;
+      border-radius: 6px;
+    }
+    
+    .data-label {
+      font-size: 11px;
+      color: var(--text-light);
+      margin-bottom: 2px;
+    }
+    
+    .data-value {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    
+    .data-value.large {
+      font-size: 18px;
+      color: var(--primary);
+    }
+    
+    .data-item.full-width {
+      grid-column: 1 / -1;
+    }
+    
+    /* Sales history in panel */
+    .sales-history {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    
+    .sales-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    
+    .sales-row:last-child {
+      border-bottom: none;
+    }
+    
+    .sales-row-price {
+      font-weight: 600;
+    }
+    
+    /* Action buttons */
+    .panel-actions {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+    }
+    
+    .btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      border: none;
+    }
+    
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+    
+    .btn-secondary {
+      background: white;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    
+    .btn-secondary:hover {
+      background: #f8fafc;
+    }
+    
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 20px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .stat-value {
+      font-weight: 600;
+    }
+    
+    /* Map controls */
+    .map-controls {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 100;
+      display: flex;
+      gap: 8px;
+    }
+    
+    .map-btn {
+      padding: 8px 14px;
+      background: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    
+    .map-btn:hover {
+      background: #f8fafc;
+    }
+    
+    /* Loading state */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      color: var(--text-light);
+    }
+    
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-light);
+    }
+    
+    .empty-state h3 {
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    
+    /* Mapbox popup customization */
+    .mapboxgl-popup-content {
+      padding: 12px 16px;
+      border-radius: 8px;
+      min-width: 200px;
+    }
+    
+    .popup-address {
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    
+    .popup-details {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    
+    .popup-price {
+      font-weight: 600;
+      color: var(--primary);
+      margin-top: 6px;
+    }
+
+    /* FAR Gap Styles */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .stat-row:last-child {
+      border-bottom: none;
+    }
+    .stat-row .label {
+      color: var(--text-light);
+      font-size: 13px;
+    }
+    .stat-row .value {
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .highlight-opportunity { 
+      background: rgba(34, 197, 94, 0.1); 
+      border-left: 3px solid #22c55e; 
+      padding-left: 8px;
+      margin-left: -8px;
+      padding-right: 8px;
+      margin-right: -8px;
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* FAR Gap & Opportunity Metrics */
+    .property-metrics {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .metric {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .metric-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-light);
+      letter-spacing: 0.5px;
+    }
+
+    .metric-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .metric-highlight .metric-value {
+      color: var(--success);
+    }
+
+    /* Opportunity Badge */
+    .opportunity-badge {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 6px;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+    }
+
+    .opportunity-badge.high {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+    }
+
+    .opportunity-badge.very-high {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+    
+    .distress-badge {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 4px;
+      margin-left: 6px;
+      display: inline-block;
+    }
+    
+    .distress-badge.severe {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+
+    /* Clickable owner */
+    .owner-link {
+      color: var(--primary);
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+    }
+
+    .owner-link:hover {
+      text-decoration-style: solid;
+    }
+
+    .owner-panel {
+      padding: 10px;
+      background: #f8fafc;
+      border-radius: 6px;
+      margin-top: 10px;
+    }
+
+    .owner-stats {
+      display: flex;
+      gap: 15px;
+      margin: 10px 0;
+    }
+
+    .owner-properties {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .mini-card {
+      padding: 8px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    
+    .mini-card:hover {
+      border-color: var(--primary);
+    }
+    
+    /* Map Markers */
+    .map-marker {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .map-marker:hover {
+      transform: scale(1.2);
+      z-index: 10;
+    }
+    
+    .map-marker.selected {
+      width: 24px;
+      height: 24px;
+      border: 3px solid white;
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.5);
+      z-index: 20;
+      transform: scale(1.1);
+    }
+    
+    /* ===== Owner Intelligence Panel ===== */
+    .owner-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 480px;
+      height: 100vh;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      z-index: 1000;
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: -4px 0 12px rgba(0,0,0,0.1);
+    }
+    
+    .owner-panel.open {
+      transform: translateX(0);
+    }
+    
+    .owner-panel-header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      background: var(--bg-dark);
+      color: white;
+    }
+    
+    .owner-panel-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 4px 0;
+    }
+    
+    .owner-panel-subtitle {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    
+    .owner-panel-close {
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 28px;
+      line-height: 1;
+      padding: 0;
+      opacity: 0.7;
+    }
+    
+    .owner-panel-close:hover {
+      opacity: 1;
+    }
+    
+    .owner-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .owner-stat {
+      text-align: center;
+    }
+    
+    .owner-stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    
+    .owner-stat-value.warning {
+      color: #f59e0b;
+    }
+    
+    .owner-stat-value.danger {
+      color: #ef4444;
+    }
+    
+    .owner-stat-value.success {
+      color: #22c55e;
+    }
+    
+    .owner-stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-light);
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+    
+    .owner-metrics {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    
+    .owner-metric {
+      flex: 1 1 45%;
+      min-width: 140px;
+    }
+    
+    .owner-metric-label {
+      font-size: 11px;
+      color: var(--text-light);
+      margin-bottom: 4px;
+    }
+    
+    .owner-metric-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    
+    .owner-metric-bar {
+      height: 4px;
+      background: #e2e8f0;
+      border-radius: 2px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    
+    .owner-metric-bar-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+    
+    .owner-actions {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+    
+    .owner-action-btn {
+      flex: 1;
+      padding: 10px 16px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .owner-action-btn:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+    
+    .owner-properties-header {
+      padding: 12px 20px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .owner-properties-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 20px 20px;
+    }
+    
+    .owner-property-card {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid var(--border);
+    }
+    
+    .owner-property-card:hover {
+      background: #f1f5f9;
+      border-color: var(--primary);
+    }
+    
+    .owner-property-address {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    
+    .owner-property-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    
+    .owner-property-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    
+    .owner-property-badge.violation {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+    }
+    
+    .entity-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    
+    .entity-badge.llc { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+    .entity-badge.corporation { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+    .entity-badge.trust { background: rgba(236, 72, 153, 0.2); color: #ec4899; }
+    .entity-badge.individual { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .entity-badge.government { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+    .entity-badge.lp { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+    .entity-badge.partnership { background: rgba(249, 115, 22, 0.2); color: #f97316; }
+    .entity-badge.association { background: rgba(20, 184, 166, 0.2); color: #14b8a6; }
+    .entity-badge.company { background: rgba(99, 102, 241, 0.2); color: #6366f1; }
+    
+    /* ===== Heatmap Controls ===== */
+    .heatmap-controls {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+      background: white;
+      padding: 8px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    
+    .heatmap-toggle {
+      padding: 8px 16px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: #64748b;
+      transition: all 0.2s;
+    }
+    
+    .heatmap-toggle:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    
+    .heatmap-toggle.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+    
+    .heatmap-legend {
+      position: absolute;
+      bottom: 40px;
+      right: 20px;
+      z-index: 10;
+      background: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      display: none;
+    }
+    
+    .heatmap-legend.visible {
+      display: block;
+    }
+    
+    .heatmap-legend-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 8px;
+    }
+    
+    .heatmap-legend-gradient {
+      width: 200px;
+      height: 20px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    
+    .heatmap-legend-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #64748b;
+    }
+    
+    /* ===== Auth UI ===== */
+    .auth-button {
+      padding: 8px 16px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    
+    .auth-button:hover {
+      background: #2563eb;
+    }
+    
+    .auth-button.secondary {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+    }
+    
+    .auth-button.secondary:hover {
+      background: rgba(59, 130, 246, 0.1);
+    }
+    
+    .user-menu {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .user-email {
+      font-size: 13px;
+      color: #64748b;
+    }
+    
+    /* Auth Modal */
+    .auth-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .auth-modal.visible {
+      display: flex;
+    }
+    
+    .auth-modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 32px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    .auth-modal-header {
+      margin-bottom: 24px;
+    }
+    
+    .auth-modal-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #1e293b;
+      margin: 0 0 8px 0;
+    }
+    
+    .auth-modal-subtitle {
+      font-size: 14px;
+      color: #64748b;
+      margin: 0;
+    }
+    
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    .auth-input {
+      padding: 12px 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    
+    .auth-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    
+    .auth-message {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    
+    .auth-message.success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+    }
+    
+    .auth-message.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    
+    .auth-message.info {
+      background: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #93c5fd;
+    }
+    
+    .auth-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    
+    .auth-actions button {
+      flex: 1;
+    }
+    
+    /* ===== Dashboard ===== */
+    .dashboard-page {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #f8fafc;
+      z-index: 2000;
+      overflow-y: auto;
+    }
+    
+    .dashboard-page.visible {
+      display: block;
+    }
+    
+    .dashboard-header {
+      background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+      color: white;
+      padding: 24px 40px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .dashboard-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    
+    .dashboard-back-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .dashboard-back-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+    
+    .dashboard-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0;
+    }
+    
+    .dashboard-subtitle {
+      font-size: 14px;
+      opacity: 0.9;
+      margin: 0;
+    }
+    
+    .dashboard-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 32px 40px;
+    }
+    
+    .dashboard-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .stat-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    
+    .stat-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .stat-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    
+    .stat-badge.new {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    .dashboard-section {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .dashboard-section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text-dark);
+    }
+    
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .market-stat {
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+    
+    .market-stat-label {
+      font-size: 12px;
+      color: var(--text-light);
+      margin-bottom: 4px;
+    }
+    
+    .market-stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .opportunity-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    
+    .opportunity-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .opportunity-card:hover {
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .opportunity-card-address {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-dark);
+    }
+    
+    .opportunity-card-stats {
+      display: flex;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--text-light);
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-light);
+    }
+    
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.3;
+    }
+    
+    /* ===== Due Diligence Page ===== */
+    .dd-page {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: white;
+      z-index: 2000;
+      overflow: hidden;
+      flex-direction: column;
+    }
+    
+    .dd-page.active {
+      display: flex;
+    }
+    
+    .dd-header {
+      background: var(--text-dark);
+      color: white;
+      padding: 20px 30px;
+      border-bottom: 1px solid #333;
+    }
+    
+    .dd-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    
+    .dd-back-btn {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .dd-back-btn:hover {
+      background: rgba(255,255,255,0.2);
+    }
+    
+    .dd-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin: 0;
+    }
+    
+    .dd-subtitle {
+      font-size: 14px;
+      color: rgba(255,255,255,0.7);
+      margin: 0;
+    }
+    
+    .dd-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0 30px;
+    }
+    
+    .dd-tab {
+      padding: 14px 24px;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: var(--text-light);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .dd-tab:hover {
+      color: var(--text-dark);
+      background: rgba(0,0,0,0.02);
+    }
+    
+    .dd-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    
+    .dd-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 30px;
+      background: var(--bg);
+    }
+    
+    .dd-section {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    
+    .dd-section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text-dark);
+    }
+    
+    .dd-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+    }
+    
+    .dd-stat {
+      padding: 16px;
+      background: var(--bg);
+      border-radius: 6px;
+    }
+    
+    .dd-stat-label {
+      font-size: 12px;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    
+    .dd-stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .dd-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    
+    .dd-table th {
+      text-align: left;
+      padding: 12px;
+      background: var(--bg);
+      font-size: 12px;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--border);
+    }
+    
+    .dd-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    
+    .dd-table tr:hover {
+      background: var(--bg);
+    }
+    
+    .dd-far-bar {
+      height: 30px;
+      background: #e5e7eb;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+    
+    .dd-far-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #2563eb);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    
+    .dd-far-unused {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      color: var(--text-light);
+      font-weight: 600;
+    }
+    
+    .dd-link-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .dd-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--primary);
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    
+    .dd-link:hover {
+      background: #eff6ff;
+      border-color: var(--primary);
+    }
+    
+    .violation-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    
+    .violation-badge.open {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    
+    .violation-badge.closed {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    
+    /* ===== Saved Searches ===== */
+    .saved-searches-section {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .saved-searches-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    
+    .saved-searches-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-light);
+    }
+    
+    .save-search-btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .save-search-btn:hover {
+      background: #2563eb;
+    }
+    
+    .saved-search-item {
+      padding: 10px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .saved-search-item:hover {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+    
+    .saved-search-item.active {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+    
+    .saved-search-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text-dark);
+    }
+    
+    .saved-search-meta {
+      font-size: 11px;
+      color: var(--text-light);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .saved-search-actions {
+      display: flex;
+      gap: 4px;
+    }
+    
+    .saved-search-actions button {
+      background: none;
+      border: none;
+      color: var(--text-light);
+      cursor: pointer;
+      padding: 2px 6px;
+      font-size: 11px;
+      border-radius: 3px;
+      transition: all 0.2s;
+    }
+    
+    .saved-search-actions button:hover {
+      background: rgba(0,0,0,0.05);
+      color: var(--text-dark);
+    }
+    
+    .active-search-indicator {
+      padding: 8px 12px;
+      background: #eff6ff;
+      border: 1px solid var(--primary);
+      border-radius: 6px;
+      margin: 12px 16px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .active-search-indicator button {
+      background: none;
+      border: none;
+      color: var(--primary);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    
+    .save-search-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 3000;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .save-search-modal.visible {
+      display: flex;
+    }
+    
+    .save-search-modal-content {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    
+    .save-search-modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text-dark);
+    }
+    
+    .save-search-input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    
+    .save-search-actions-modal {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    
+    /* ===== Notes & Activity ===== */
+    .notes-section {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    
+    .notes-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .notes-content {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-dark);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    
+    .notes-empty {
+      font-size: 13px;
+      color: var(--text-light);
+      font-style: italic;
+    }
+    
+    .notes-textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      resize: vertical;
+    }
+    
+    .notes-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .notes-meta {
+      font-size: 11px;
+      color: var(--text-light);
+      margin-top: 8px;
+    }
+    
+    .activity-section {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    
+    .activity-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-bottom: 12px;
+    }
+    
+    .activity-item {
+      font-size: 12px;
+      color: var(--text-dark);
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .activity-item:last-child {
+      border-bottom: none;
+    }
+    
+    .activity-action {
+      font-weight: 600;
+    }
+    
+    .activity-time {
+      color: var(--text-light);
+      font-size: 11px;
+    }
+    
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #1e40af;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .tag:hover {
+      background: #dbeafe;
+    }
+    
+    .tag-remove {
+      cursor: pointer;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Left Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div>
+          <h1>NYC CRE Explorer</h1>
+          <p>Midtown South | Deal Sourcing</p>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="auth-button" id="dashboardButton" style="font-size: 13px; padding: 6px 12px;">
+            📊 Dashboard
+          </button>
+          <div id="authContainer" class="user-menu">
+            <button class="auth-button" id="loginButton">Sign In</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="tabs">
+        <div class="tab active" data-tab="properties">Properties</div>
+        <div class="tab" data-tab="sales">Recent Sales</div>
+        <div class="tab" data-tab="opportunities">🔥 Opportunities</div>
+        <div class="tab" data-tab="portfolio">Portfolio</div>
+      </div>
+      
+      <!-- Saved Searches Section -->
+      <div class="saved-searches-section" id="savedSearchesSection" style="display: none;">
+        <div class="saved-searches-header">
+          <div class="saved-searches-title">Saved Searches</div>
+          <button class="save-search-btn" id="saveCurrentSearchBtn">💾 Save Current</button>
+        </div>
+        <div id="savedSearchesList">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+      
+      <!-- Active Search Indicator -->
+      <div class="active-search-indicator" id="activeSearchIndicator" style="display: none;">
+        <span id="activeSearchName">Loading search...</span>
+        <button id="clearActiveSearch">Clear</button>
+      </div>
+      
+      <div class="search-container">
+        <input type="text" class="search-input" id="searchInput" placeholder="Search address, owner, or BBL...">
+        <div class="search-filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="office">Office</button>
+          <button class="filter-btn" data-filter="retail">Retail</button>
+          <button class="filter-btn" data-filter="multifam">Multifam</button>
+          <button class="filter-btn" data-filter="industrial">Industrial</button>
+        </div>
+        <div style="margin-top: 12px;">
+          <label for="farFilter" style="font-size: 12px; color: var(--text-light); display: block; margin-bottom: 4px;">Min FAR Gap (Development Potential)</label>
+          <select id="farFilter" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid var(--border); font-size: 13px;">
+            <option value="">Any</option>
+            <option value="1">1.0+ (Some Upside)</option>
+            <option value="2">2.0+ (Significant Upside)</option>
+            <option value="4">4.0+ (Major Opportunity)</option>
+          </select>
+        </div>
+        
+        <div style="margin-top: 12px;">
+          <label for="distressFilter" style="font-size: 12px; color: var(--text-light); display: block; margin-bottom: 4px;">Distress Signal</label>
+          <select id="distressFilter" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid var(--border); font-size: 13px;">
+            <option value="">Any Status</option>
+            <option value="1">Some Distress (Score 1+)</option>
+            <option value="20">Moderate Distress (Score 20+)</option>
+            <option value="50">High Distress (Score 50+)</option>
+          </select>
+        </div>
+        <div style="margin-top: 12px;">
+          <button class="auth-button" id="exportCSVBtn" style="width: 100%; font-size: 13px;">
+            ↓ Export to CSV
+          </button>
+        </div>
+      </div>
+      
+      <div class="stats-bar" id="statsBar">
+        <div class="stat-item">
+          <span>Properties:</span>
+          <span class="stat-value" id="statProperties">-</span>
+        </div>
+        <div class="stat-item">
+          <span>Sales (30d):</span>
+          <span class="stat-value" id="statSales">-</span>
+        </div>
+        <div class="stat-item">
+          <span>Avg $/SF:</span>
+          <span class="stat-value" id="statPSF">-</span>
+        </div>
+      </div>
+      
+      <!-- Dashboard Container (hidden, moved to full page) -->
+      <div class="dashboard-container" id="dashboardContainer" style="display: none;">
+        <div class="loading">Loading dashboard...</div>
+      </div>
+      
+      <div class="property-list" id="listContainer" style="display: none;">
+        <div class="loading">Loading properties...</div>
+      </div>
+    </div>
+    
+    <!-- Map Container -->
+    <div class="map-container">
+      <div id="map"></div>
+      
+      <!-- Heatmap Controls -->
+      <div class="heatmap-controls">
+        <button class="heatmap-toggle active" data-mode="markers">Markers</button>
+        <button class="heatmap-toggle" data-mode="opportunity">Opportunity</button>
+        <button class="heatmap-toggle" data-mode="price">Price</button>
+        <button class="heatmap-toggle" data-mode="distress">Distress</button>
+      </div>
+      
+      <!-- Heatmap Legend -->
+      <div class="heatmap-legend" id="heatmapLegend">
+        <div class="heatmap-legend-title" id="legendTitle">Opportunity Density</div>
+        <div class="heatmap-legend-gradient" id="legendGradient"></div>
+        <div class="heatmap-legend-labels">
+          <span>Low</span>
+          <span>High</span>
+        </div>
+      </div>
+      
+      <div class="map-controls">
+        <button class="map-btn" id="resetView">Reset View</button>
+        <button class="map-btn" id="toggleSales">Show Sales</button>
+        <button class="map-btn" id="toggleSatellite">Satellite</button>
+      </div>
+      
+      <!-- Property Detail Panel -->
+      <div class="property-panel" id="propertyPanel">
+        <div class="panel-header">
+          <div>
+            <h2 id="panelAddress">-</h2>
+            <p id="panelBBL" style="font-size: 12px; opacity: 0.7; margin-top: 4px;">-</p>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="auth-button" id="viewFullDetailsBtn" style="font-size: 13px; padding: 6px 12px;">
+              View Full Details →
+            </button>
+            <button class="panel-close" id="closePanel">&times;</button>
+          </div>
+        </div>
+        
+        <div class="panel-content">
+          <div class="panel-section">
+            <h3>Investment Analytics</h3>
+            <div class="data-grid">
+              <div class="data-item">
+                <div class="data-label">Opp Score</div>
+                <div class="data-value large" id="panelScore">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Ownership Tenure</div>
+                <div class="data-value" id="panelTenure">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">FAR Gap</div>
+                <div class="data-value" id="panelFarGap">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Assessment Ratio</div>
+                <div class="data-value" id="panelAssessRatio">-</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Distress Signals</h3>
+            <div class="data-grid">
+              <div class="data-item">
+                <div class="data-label">Distress Score</div>
+                <div class="data-value" id="panelDistressScore">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Last Updated</div>
+                <div class="data-value" id="panelDistressDate">-</div>
+              </div>
+            </div>
+            <div id="panelViolationsList" style="margin-top: 10px; max-height: 200px; overflow-y: auto;"></div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Property Overview</h3>
+            <div class="data-grid">
+              <div class="data-item">
+                <div class="data-label">Building SF</div>
+                <div class="data-value" id="panelBldgSF">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Lot SF</div>
+                <div class="data-value" id="panelLotSF">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Year Built</div>
+                <div class="data-value" id="panelYearBuilt">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Floors</div>
+                <div class="data-value" id="panelFloors">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Building Class</div>
+                <div class="data-value" id="panelClass">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Units</div>
+                <div class="data-value" id="panelUnits">-</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Zoning & FAR</h3>
+            <div class="data-grid">
+              <div class="data-item">
+                <div class="data-label">Zoning</div>
+                <div class="data-value" id="panelZoning">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Built FAR</div>
+                <div class="data-value" id="panelBuiltFAR">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Max Comm FAR</div>
+                <div class="data-value" id="panelCommFAR">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Buildable SF</div>
+                <div class="data-value" id="panelBuildable">-</div>
+              </div>
+            </div>
+            <div id="panelFarStats" style="margin-top: 12px;"></div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Ownership</h3>
+            <div class="data-grid">
+              <div class="data-item full-width">
+                <div class="data-label">Owner</div>
+                <div class="data-value" id="panelOwner">-</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Tax & Assessment</h3>
+            <div class="data-grid">
+              <div class="data-item">
+                <div class="data-label">Assessed Total</div>
+                <div class="data-value" id="panelAssessed">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Exempt Total</div>
+                <div class="data-value" id="panelExempt">-</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Sales History</h3>
+            <div class="sales-history" id="panelSales">
+              <div class="sales-row">
+                <span>No sales on record</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Market Context (Comps)</h3>
+            <div id="panelComps" style="min-height: 60px; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-style: italic; font-size: 12px;">
+              Loading comparable sales...
+            </div>
+          </div>
+          
+          <div class="panel-section">
+            <h3>Permits & Violations</h3>
+            <div class="data-grid">
+              <div class="data-item">
+                <div class="data-label">Active Permits</div>
+                <div class="data-value" id="panelPermits">-</div>
+              </div>
+              <div class="data-item">
+                <div class="data-label">Open Violations</div>
+                <div class="data-value" id="panelViolations">-</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Notes Section -->
+        <div class="notes-section" id="notesSection" style="display: none;">
+          <div class="notes-header">
+            <div class="notes-title">📝 Notes</div>
+            <button class="auth-button" id="editNoteBtn" style="font-size: 12px; padding: 4px 10px;">Edit</button>
+          </div>
+          <div id="notesDisplay">
+            <div class="notes-empty">No notes yet. Click Edit to add notes.</div>
+          </div>
+          <div id="notesEdit" style="display: none;">
+            <textarea class="notes-textarea" id="noteTextarea" placeholder="Add your notes here..."></textarea>
+            <div class="notes-actions">
+              <button class="auth-button" id="saveNoteBtn">Save</button>
+              <button class="auth-button secondary" id="cancelNoteBtn">Cancel</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Activity Section -->
+        <div class="activity-section" id="activitySection" style="display: none;">
+          <div class="activity-title">📊 Your Activity</div>
+          <div id="activityDisplay">
+            <div class="notes-empty">No activity yet</div>
+          </div>
+        </div>
+        
+        <div class="panel-actions">
+          <button class="panel-btn" id="addToPortfolio">★ Add to Portfolio</button>
+          <button class="panel-btn secondary" id="exportPDFBtn">↓ PDF Report</button>
+          <button class="panel-btn secondary" id="viewOnACRIS">View on ACRIS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Owner Intelligence Panel -->
+  <div id="ownerPanel" class="owner-panel">
+    <div class="owner-panel-header">
+      <div>
+        <h3 class="owner-panel-title" id="ownerPanelName">Loading...</h3>
+        <p class="owner-panel-subtitle" id="ownerPanelType"></p>
+      </div>
+      <button class="owner-panel-close" id="closeOwnerPanel">×</button>
+    </div>
+    
+    <div class="owner-stats-grid" id="ownerStats">
+      <!-- Filled by JS -->
+    </div>
+    
+    <div class="owner-metrics" id="ownerMetrics">
+      <!-- Filled by JS -->
+    </div>
+    
+    <div class="owner-actions">
+      <button class="owner-action-btn" id="viewOwnerOnMap">📍 View on Map</button>
+      <button class="owner-action-btn" id="exportOwnerData">📥 Export CSV</button>
+    </div>
+    
+    <div class="owner-properties-header" id="ownerPropertiesHeader">
+      Properties (0)
+    </div>
+    
+    <div class="owner-properties-list" id="ownerPropertiesList">
+      <!-- Filled by JS -->
+    </div>
+  </div>
+
+  <!-- Auth Modal -->
+  <div class="auth-modal" id="authModal">
+    <div class="auth-modal-content">
+      <div class="auth-modal-header">
+        <h2 class="auth-modal-title">Sign In</h2>
+        <p class="auth-modal-subtitle">Use: admin/admin123 or client/client123</p>
+      </div>
+      
+      <div id="authMessage"></div>
+      
+      <form class="auth-form" id="authForm">
+        <input 
+          type="text" 
+          class="auth-input" 
+          id="usernameInput" 
+          placeholder="Username"
+          required
+          autocomplete="username"
+        />
+        <input 
+          type="password" 
+          class="auth-input" 
+          id="passwordInput" 
+          placeholder="Password"
+          required
+          autocomplete="current-password"
+        />
+        
+        <div class="auth-actions">
+          <button type="button" class="auth-button secondary" id="cancelAuth">Cancel</button>
+          <button type="submit" class="auth-button" id="submitAuth">Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Due Diligence Page -->
+  <div class="dd-page" id="ddPage">
+    <div class="dd-header">
+      <div class="dd-header-top">
+        <button class="dd-back-btn" id="ddBackBtn">← Back to List</button>
+        <button class="auth-button" id="ddSaveBtn">★ Save to Portfolio</button>
+      </div>
+      <h1 class="dd-title" id="ddTitle">Loading...</h1>
+      <p class="dd-subtitle" id="ddSubtitle">Loading property details...</p>
+    </div>
+    
+    <div class="dd-tabs">
+      <button class="dd-tab active" data-dd-tab="overview">Overview</button>
+      <button class="dd-tab" data-dd-tab="financials">Financials</button>
+      <button class="dd-tab" data-dd-tab="zoning">Zoning</button>
+      <button class="dd-tab" data-dd-tab="distress">Distress</button>
+      <button class="dd-tab" data-dd-tab="documents">Documents</button>
+    </div>
+    
+    <div class="dd-content" id="ddContent">
+      <div class="loading">Loading property details...</div>
+    </div>
+  </div>
+
+  <!-- Dashboard Page -->
+  <div class="dashboard-page" id="dashboardPage">
+    <div class="dashboard-header">
+      <div class="dashboard-header-top">
+        <button class="dashboard-back-btn" id="dashboardBackBtn">← Back to Map</button>
+      </div>
+      <h1 class="dashboard-title">📊 Dashboard</h1>
+      <p class="dashboard-subtitle">Portfolio overview and market intelligence</p>
+    </div>
+    
+    <div class="dashboard-container" id="dashboardPageContent">
+      <div class="loading">Loading dashboard...</div>
+    </div>
+  </div>
+
+  <!-- Save Search Modal -->
+  <div class="save-search-modal" id="saveSearchModal">
+    <div class="save-search-modal-content">
+      <h2 class="save-search-modal-title">Save Search</h2>
+      <input 
+        type="text" 
+        class="save-search-input" 
+        id="searchNameInput" 
+        placeholder="e.g., Office opportunities in Midtown"
+        maxlength="100"
+      />
+      <div class="save-search-actions-modal">
+        <button class="auth-button secondary" id="cancelSaveSearch">Cancel</button>
+        <button class="auth-button" id="confirmSaveSearch">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF Generation Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+  <script>
+    // ============ APP STATE ============
+    const state = {
+      // Filters (sent to /api/data)
+      filters: {
+        bldgclass: 'all',
+        minFarGap: null,
+        minDistress: null,
+        sort: 'far_gap',
+        order: 'desc'
+      },
+      
+      // Data (received from /api/data)
+      data: {
+        properties: [],
+        sales: [],
+        stats: {}
+      },
+      
+      // UI State
+      activeTab: 'properties',
+      selectedProperty: null,
+      portfolio: JSON.parse(localStorage.getItem('portfolio') || '[]'),
+      map: null,
+      markers: [],
+      currentStyle: 'light',
+      opportunities: [], // Keep for opportunities tab
+      
+      // Auth State
+      user: null,
+      accessToken: localStorage.getItem('accessToken') || null,
+      
+      // Saved Searches
+      savedSearches: [],
+      activeSearchId: null
+    };
+
+    // Midtown South bounds
+    const BOUNDS = {
+      center: [-73.9885, 40.7490],
+      zoom: 15,
+      bounds: [
+        [-74.000, 40.738], // SW
+        [-73.977, 40.760]  // NE
+      ]
+    };
+
+    // ============ INITIALIZATION ============
+    
+    // Initialize Mapbox
+    
+    async function init() {
+      // User's token (fallback - Default public token)
+      const USER_TOKEN = 'pk.eyJ1IjoiYWJvci1hZG1pbiIsImEiOiJjbWlxNnU3c2swaWhtM2ZvZW9yMjFlMDFpIn0.X2Ln09z-4sjdww-FodhwbQ';
+      
+      // Disable telemetry to stop console errors
+      try {
+        mapboxgl.config.ENABLE_TELEMETRY = false;
+      } catch (e) { /* ignore */ }
+
+      // Fetch configuration
+      try {
+        const configRes = await fetch('/api/config');
+        // Check if response is JSON
+        const contentType = configRes.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Config endpoint returned non-JSON response (likely HTML fallback)');
+        }
+        
+        const config = await configRes.json();
+        if (config.mapboxToken) {
+          mapboxgl.accessToken = config.mapboxToken;
+          console.log('Loaded token from server');
+        } else {
+          console.warn('No Mapbox token in config, using fallback');
+          mapboxgl.accessToken = USER_TOKEN;
+        }
+      } catch (err) {
+        console.warn('Failed to load config from server, using fallback token:', err);
+        mapboxgl.accessToken = USER_TOKEN;
+      }
+
+      // Initialize map
+      try {
+        state.map = new mapboxgl.Map({
+          container: 'map',
+          style: 'mapbox://styles/mapbox/light-v11',
+          center: BOUNDS.center,
+          zoom: BOUNDS.zoom
+        });
+
+        state.map.on('error', (e) => {
+          console.error('Mapbox error:', e);
+        });
+
+        state.map.on('load', () => {
+          console.log('Map loaded successfully');
+          state.map.resize(); // Force resize to ensure render
+        });
+
+        state.map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+      } catch (e) {
+        console.error('Error initializing map:', e);
+        alert('Failed to initialize map. Please check your console for details.');
+      }
+      
+      // Check auth status
+      await checkAuth();
+      
+      // Load saved searches if logged in
+      await loadSavedSearches();
+      
+      // Load initial data
+      await fetchData();
+      
+      // Setup event listeners
+      setupEventListeners();
+    }
+
+    // ============ UNIFIED DATA FETCHING ============
+    
+    async function fetchData() {
+      try {
+        // Show loading state
+        const listContainer = document.getElementById('listContainer');
+        if (listContainer) {
+          listContainer.innerHTML = '<div class="loading">Loading data...</div>';
+        }
+        
+        // Build query string from state.filters
+        const params = new URLSearchParams();
+        Object.entries(state.filters).forEach(([key, value]) => {
+          if (value !== null && value !== '' && value !== 'all') {
+            params.append(key, value);
+          }
+        });
+        
+        // Always send bldgclass even if 'all'
+        if (!params.has('bldgclass')) {
+          params.append('bldgclass', state.filters.bldgclass || 'all');
+        }
+        
+        console.log('[fetchData] Fetching with params:', params.toString());
+        
+        const response = await fetch(`/api/data?${params}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        
+        // Normalize coordinates for properties
+        const normalizedProperties = (data.properties || []).map(p => ({
+          ...p,
+          latitude: p.latitude || p.lat,
+          longitude: p.longitude || p.lng
+        }));
+        
+        // Flatten nested properties data in sales
+        const normalizedSales = (data.sales || []).map(s => {
+          const prop = s.properties || {};
+          return {
+            ...s,
+            address: prop.address || s.address,
+            bldgclass: prop.bldgclass || s.bldgclass,
+            ownername: prop.ownername
+          };
+        });
+        
+        // Store the data
+        state.data = {
+          properties: normalizedProperties,
+          sales: normalizedSales,
+          stats: data.stats || {}
+        };
+        
+        console.log(`[fetchData] Loaded ${normalizedProperties.length} properties, ${normalizedSales.length} sales`);
+        
+        // Render everything
+        renderAll();
+        
+      } catch (error) {
+        console.error('Fetch error:', error);
+        const listContainer = document.getElementById('listContainer');
+        if (listContainer) {
+          listContainer.innerHTML = `<div class="error">Error loading data: ${error.message}</div>`;
+        }
+      }
+    }
+    
+    function renderAll() {
+      renderList();
+      renderMap();
+      updateStats();
+    }
+    
+    async function loadOpportunities() {
+      try {
+        const response = await fetch('/api/opportunities?limit=50');
+        const data = await response.json();
+        state.opportunities = data.properties || [];
+      } catch (err) {
+        console.error('Error loading opportunities:', err);
+      }
+    }
+
+    // ============ EVENT LISTENERS ============
+    
+    function setupEventListeners() {
+      // Tab switching
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const targetTab = tab.dataset.tab;
+          
+          // Update active tab
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          state.activeTab = targetTab;
+          
+          // Show list container for all tabs
+          document.getElementById('listContainer').style.display = 'block';
+          
+          // Render list for current tab
+          renderList();
+        });
+      });
+      
+      // Filter buttons
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.filters.bldgclass = btn.dataset.filter;
+          fetchData();
+        });
+      });
+
+      // FAR Gap filter
+      document.getElementById('farFilter').addEventListener('change', (e) => {
+        state.filters.minFarGap = e.target.value || null;
+        fetchData();
+      });
+      
+      // Distress filter
+      document.getElementById('distressFilter').addEventListener('change', (e) => {
+        state.filters.minDistress = e.target.value || null;
+        fetchData();
+      });
+      
+      // Search
+      document.getElementById('searchInput').addEventListener('input', debounce((e) => {
+        // For now, keep search client-side if we have data, or server-side if we implemented it
+        // Since we load 200 items, let's just re-fetch with search param if we want full search
+        // But simple client side search on the 200 items is faster for demo
+        const query = e.target.value.toLowerCase();
+        renderList(query);
+      }, 300));
+      
+      // Close panel
+      document.getElementById('closePanel').addEventListener('click', () => {
+        document.getElementById('propertyPanel').classList.remove('open');
+        state.selectedProperty = null;
+      });
+      
+      // View Full Details button
+      document.getElementById('viewFullDetailsBtn').addEventListener('click', () => {
+        if (state.selectedProperty) {
+          openDueDiligencePage(state.selectedProperty);
+        }
+      });
+      
+      // Reset view
+      document.getElementById('resetView').addEventListener('click', () => {
+        state.map.flyTo({ center: BOUNDS.center, zoom: BOUNDS.zoom });
+      });
+      
+      // Add to portfolio
+      document.getElementById('addToPortfolio').addEventListener('click', () => {
+        if (state.selectedProperty) {
+          addToPortfolio(state.selectedProperty.bbl);
+        }
+      });
+
+      // Toggle Satellite
+      document.getElementById('toggleSatellite').addEventListener('click', () => {
+        const btn = document.getElementById('toggleSatellite');
+        if (state.currentStyle === 'light') {
+          state.map.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
+          state.currentStyle = 'satellite';
+          btn.textContent = 'Street Map';
+          btn.classList.add('active');
+        } else {
+          state.map.setStyle('mapbox://styles/mapbox/light-v11');
+          state.currentStyle = 'light';
+          btn.textContent = 'Satellite';
+          btn.classList.remove('active');
+        }
+      });
+      
+      // View on ACRIS
+      document.getElementById('viewOnACRIS').addEventListener('click', () => {
+        if (state.selectedProperty) {
+          const { borough, block, lot } = state.selectedProperty;
+          // Pad block to 5 digits, lot to 4 digits for ACRIS
+          const paddedBlock = String(block).padStart(5, '0');
+          const paddedLot = String(lot).padStart(4, '0');
+          // Use BBLResult endpoint for direct results
+          const url = `https://a836-acris.nyc.gov/DS/DocumentSearch/BBLResult?borough=${borough}&block=${paddedBlock}&lot=${paddedLot}`;
+          window.open(url, '_blank');
+        }
+      });
+    }
+
+
+    // ============ RENDERING ============
+    
+    function getPanelTemplate() {
+      return `
+        <div class="panel-section">
+          <h3>Investment Analytics</h3>
+          <div class="data-grid">
+            <div class="data-item">
+              <div class="data-label">Opp Score</div>
+              <div class="data-value large" id="panelScore">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Ownership Tenure</div>
+              <div class="data-value" id="panelTenure">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">FAR Gap</div>
+              <div class="data-value" id="panelFarGap">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Assessment Ratio</div>
+              <div class="data-value" id="panelAssessRatio">-</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Distress Signals</h3>
+          <div class="data-grid">
+            <div class="data-item">
+              <div class="data-label">Distress Score</div>
+              <div class="data-value" id="panelDistressScore">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Last Updated</div>
+              <div class="data-value" id="panelDistressDate">-</div>
+            </div>
+          </div>
+          <div id="panelViolationsList" style="margin-top: 10px; max-height: 200px; overflow-y: auto;"></div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Property Overview</h3>
+          <div class="data-grid">
+            <div class="data-item">
+              <div class="data-label">Building SF</div>
+              <div class="data-value" id="panelBldgSF">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Lot SF</div>
+              <div class="data-value" id="panelLotSF">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Year Built</div>
+              <div class="data-value" id="panelYearBuilt">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Floors</div>
+              <div class="data-value" id="panelFloors">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Building Class</div>
+              <div class="data-value" id="panelClass">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Units</div>
+              <div class="data-value" id="panelUnits">-</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Zoning & FAR</h3>
+          <div class="data-grid">
+            <div class="data-item">
+              <div class="data-label">Zoning</div>
+              <div class="data-value" id="panelZoning">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Built FAR</div>
+              <div class="data-value" id="panelBuiltFAR">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Max Comm FAR</div>
+              <div class="data-value" id="panelCommFAR">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Buildable SF</div>
+              <div class="data-value" id="panelBuildable">-</div>
+            </div>
+          </div>
+          <div id="panelFarStats" style="margin-top: 12px;"></div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Ownership</h3>
+          <div class="data-grid">
+            <div class="data-item full-width">
+              <div class="data-label">Owner</div>
+              <div class="data-value" id="panelOwner">-</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Tax & Assessment</h3>
+          <div class="data-grid">
+            <div class="data-item">
+              <div class="data-label">Assessed Total</div>
+              <div class="data-value" id="panelAssessed">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Exempt Total</div>
+              <div class="data-value" id="panelExempt">-</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Sales History</h3>
+          <div class="sales-history" id="panelSales">
+            <div class="sales-row">
+              <span>No sales on record</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h3>Market Context (Comps)</h3>
+          <div id="panelComps" style="min-height: 60px; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-style: italic; font-size: 12px;">
+            Loading comparable sales...
+          </div>
+        </div>
+        
+        <div class="panel-section">
+          <h3>Permits & Violations</h3>
+          <div class="data-grid">
+            <div class="data-item">
+              <div class="data-label">Active Permits</div>
+              <div class="data-value" id="panelPermits">-</div>
+            </div>
+            <div class="data-item">
+              <div class="data-label">Open Violations</div>
+              <div class="data-value" id="panelViolations">-</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    function setupPanelListeners() {
+      // Add to portfolio
+      const addToPortfolioBtn = document.getElementById('addToPortfolio');
+      if (addToPortfolioBtn) {
+        // Remove old listener to avoid duplicates if we didn't replace the element?
+        // Since we replace innerHTML of panel-content, the button (which is outside panel-content) STAYS.
+        // Wait, let's check HTML structure.
+        // .panel-actions is SIBLING to .panel-content.
+        // So the buttons are NOT destroyed when we replace .panel-content!
+        // Ah! showOwnerResults replaces .panel-content.
+        // BUT the user's screenshot shows the "Back" button INSIDE the white area.
+        // And the owner results replace the "Property Overview" etc.
+        // If .panel-actions is outside, then those buttons persist.
+        // BUT the context changes.
+      }
+    }
+
+    function restorePropertyView() {
+      const panelContent = document.querySelector('.panel-content');
+      panelContent.innerHTML = getPanelTemplate();
+      
+      // Restore view state
+      if (state.selectedProperty) {
+        selectProperty(state.selectedProperty.bbl);
+      }
+    }
+
+    function getClientSideScore(property) {
+      const farGap = property.far_gap || 0;
+      const age = new Date().getFullYear() - (property.yearbuilt || 2000);
+      
+      let score = 0;
+      score += Math.min(farGap * 10, 40);
+      score += Math.min(age / 2, 30);
+      return Math.round(score);
+    }
+
+    function getOpportunityBadge(property) {
+      // Use server score if available
+      if (property.opportunityScore !== undefined) {
+        const score = property.opportunityScore;
+        if (score >= 70) return '<span class="opportunity-badge very-high">HOT DEAL</span>';
+        if (score >= 50) return '<span class="opportunity-badge high">HIGH OPP</span>';
+        if (score >= 30) return '<span class="opportunity-badge">UPSIDE</span>';
+        return '';
+      }
+
+      // Fallback client-side calculation
+      const score = getClientSideScore(property);
+      const farGap = property.far_gap || 0;
+      
+      if (score >= 50) {
+        return '<span class="opportunity-badge very-high">HOT</span>';
+      } else if (score >= 35) {
+        return '<span class="opportunity-badge high">OPP</span>';
+      } else if (farGap > 2) {
+        return '<span class="opportunity-badge">UPSIDE</span>';
+      }
+      return '';
+    }
+
+    function getDistressBadge(property) {
+      if (!property.distress_score || property.distress_score < 1) return '';
+      const score = property.distress_score;
+      const label = score >= 20 ? 'SEVERE DISTRESS' : 'DISTRESS';
+      const className = score >= 20 ? 'distress-badge severe' : 'distress-badge';
+      return `<span class="${className}">${label}</span>`;
+    }
+
+    function renderList(searchQuery = '') {
+      const container = document.getElementById('listContainer');
+      
+      if (state.activeTab === 'properties' || state.activeTab === 'opportunities') {
+        let items = state.activeTab === 'opportunities' ? state.opportunities : state.data.properties;
+        
+        // Apply search locally for now
+        if (searchQuery) {
+          items = items.filter(p => 
+            p.address?.toLowerCase().includes(searchQuery) ||
+            p.ownername?.toLowerCase().includes(searchQuery) ||
+            p.bbl?.includes(searchQuery)
+          );
+        }
+        
+        if (items.length === 0) {
+          container.innerHTML = '<div class="empty-state"><h3>No properties found</h3></div>';
+          return;
+        }
+        
+        container.innerHTML = items.map(p => `
+          <div class="property-item" data-bbl="${p.bbl}">
+            ${getOpportunityBadge(p)}
+            <div class="property-address">
+              ${p.address || 'No Address'}
+              ${getDistressBadge(p)}
+            </div>
+            <div class="property-meta">
+              <span>${formatNumber(p.bldgarea)} SF</span>
+              <span>${p.bldgclass || '-'}</span>
+              <span>${p.zonedist1 || '-'}</span>
+              ${p.lastSalePrice ? `<span class="property-price">$${formatNumber(p.lastSalePrice)}</span>` : ''}
+            </div>
+            ${p.far_gap > 0 ? `
+            <div class="property-metrics">
+              ${p.opportunityScore !== undefined ? `
+              <div class="metric metric-highlight">
+                <span class="metric-label">Score</span>
+                <span class="metric-value">${p.opportunityScore}</span>
+              </div>
+              ` : ''}
+              <div class="metric ${p.far_gap > 2 ? 'metric-highlight' : ''}">
+                <span class="metric-label">FAR Gap</span>
+                <span class="metric-value">${(p.far_gap || 0).toFixed(1)}</span>
+              </div>
+              ${p.tenure ? `
+              <div class="metric">
+                <span class="metric-label">Tenure</span>
+                <span class="metric-value">${p.tenure} yr</span>
+              </div>
+              ` : ''}
+              <div class="metric">
+                <span class="metric-label">Unused SF</span>
+                <span class="metric-value">${formatNumber(p.unused_sf || 0)}</span>
+              </div>
+            </div>
+            ` : ''}
+          </div>
+        `).join('');
+        
+        // Add click handlers
+        container.querySelectorAll('.property-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const bbl = item.dataset.bbl;
+            selectProperty(bbl);
+          });
+        });
+        
+      } else if (state.activeTab === 'sales') {
+        // Sales are already filtered by server based on active filters
+        let sales = state.data.sales;
+        
+        // Apply search locally
+        if (searchQuery) {
+          sales = sales.filter(s => 
+            s.address?.toLowerCase().includes(searchQuery)
+          );
+        }
+        
+        if (sales.length === 0) {
+          container.innerHTML = '<div class="empty-state"><h3>No sales found</h3></div>';
+          return;
+        }
+        
+        container.innerHTML = sales.map(s => `
+          <div class="sale-item" data-bbl="${s.bbl}">
+            <div class="sale-header">
+              <span class="sale-address">${s.address || 'No Address'}</span>
+              <span class="sale-price">$${formatNumber(s.sale_price)}</span>
+            </div>
+            <div class="sale-details">
+              <span>${s.sale_date || '-'}</span>
+              <span>${formatNumber(s.gross_sf)} SF</span>
+              ${s.price_per_sf ? `<span>$${formatNumber(s.price_per_sf)}/SF</span>` : ''}
+              <span>${s.building_class || s.bldgclass || '-'}</span>
+            </div>
+          </div>
+        `).join('');
+        
+        container.querySelectorAll('.sale-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const bbl = item.dataset.bbl;
+            selectProperty(bbl);
+          });
+        });
+        
+      } else if (state.activeTab === 'portfolio') {
+        if (state.portfolio.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <h3>No Properties Saved</h3>
+              <p>Click "+ Add to Portfolio" on any property to track it</p>
+            </div>
+          `;
+          return;
+        }
+        
+        // Portfolio properties - try to find them in current data
+        const portfolioProperties = state.portfolio
+          .map(bbl => state.data.properties.find(p => p.bbl === bbl))
+          .filter(Boolean);
+        
+        container.innerHTML = portfolioProperties.map(p => `
+          <div class="property-item" data-bbl="${p.bbl}">
+            <div class="property-address">${p.address || 'No Address'}</div>
+            <div class="property-meta">
+              <span>${formatNumber(p.bldgarea)} SF</span>
+              <span>${p.bldgclass || '-'}</span>
+              ${p.lastSalePrice ? `<span class="property-price">$${formatNumber(p.lastSalePrice)}</span>` : ''}
+            </div>
+          </div>
+        `).join('');
+        
+        container.querySelectorAll('.property-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const bbl = item.dataset.bbl;
+            selectProperty(bbl);
+          });
+        });
+      }
+    }
+
+    // ============ OWNER SEARCH ============
+
+    async function searchOwner(name) {
+      if (!name) return;
+      
+      const btn = document.querySelector('.owner-link');
+      if (btn) btn.textContent = 'Searching...';
+      
+      try {
+        const response = await fetch(`/api/owners/${encodeURIComponent(name)}`);
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        showOwnerResults(data);
+        
+      } catch (error) {
+        console.error('Owner search failed:', error);
+        alert('Could not load owner portfolio');
+      } finally {
+        if (btn) btn.textContent = name;
+      }
+    }
+
+    function showOwnerResults(data) {
+      const owner = data.owners[0];
+      if (!owner) {
+        alert('No properties found for this owner');
+        return;
+      }
+      
+      const panelContent = document.querySelector('.panel-content');
+      
+      // Simple back button to restore
+      const backBtn = `<button id="backToPropertyBtn" style="margin-bottom:10px; padding:5px 10px; border:1px solid #ccc; border-radius:4px; background:white; cursor:pointer;">← Back to Property</button>`;
+      
+      const html = `
+        <div class="owner-panel-view">
+          ${backBtn}
+          
+          <div style="margin-bottom: 16px;">
+            <div style="font-size: 10px; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; margin-bottom: 4px;">${owner.entityType}</div>
+            <h3 style="font-size: 18px; margin-bottom: 4px;">${owner.name}</h3>
+            <div style="font-size: 12px; color: #64748b;">${owner.blockCount} unique blocks • ${owner.properties.length} properties</div>
+          </div>
+
+          <div class="owner-stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+            <div class="metric" style="background: #f8fafc; padding: 10px; border-radius: 6px;">
+              <span class="metric-value" style="font-size: 16px; font-weight: 600; color: #2563eb;">$${(owner.totalAssessed / 1000000).toFixed(1)}M</span>
+              <span class="metric-label" style="font-size: 11px; color: #64748b;">Portfolio Value</span>
+            </div>
+            <div class="metric" style="background: #f8fafc; padding: 10px; border-radius: 6px;">
+              <span class="metric-value" style="font-size: 16px; font-weight: 600;">${owner.avgHoldingPeriod} yr</span>
+              <span class="metric-label" style="font-size: 11px; color: #64748b;">Avg Hold</span>
+            </div>
+            <div class="metric" style="background: #f8fafc; padding: 10px; border-radius: 6px;">
+              <span class="metric-value" style="font-size: 16px; font-weight: 600;">${formatNumber(owner.totalSF)}</span>
+              <span class="metric-label" style="font-size: 11px; color: #64748b;">Total SF</span>
+            </div>
+            <div class="metric" style="background: #f8fafc; padding: 10px; border-radius: 6px;">
+              <span class="metric-value" style="font-size: 16px; font-weight: 600; color: ${owner.totalDistressScore > 0 ? '#ef4444' : '#10b981'};">${owner.totalDistressScore}</span>
+              <span class="metric-label" style="font-size: 11px; color: #64748b;">Distress Index</span>
+            </div>
+          </div>
+          
+          <h4 style="font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">Holdings</h4>
+          
+          <div class="owner-properties">
+            ${owner.properties.map(p => `
+              <div class="mini-card" onclick="selectProperty('${p.bbl}')">
+                <div style="font-weight:600; font-size: 13px;">${p.address}</div>
+                <div style="display:flex; justify-content: space-between; font-size: 11px; color:#64748b; margin-top: 4px;">
+                  <span>${p.bldgclass} • ${formatNumber(p.bldgarea)} SF</span>
+                  ${p.distress_score > 0 ? '<span style="color: #ef4444;">⚠ Distress</span>' : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+      
+      panelContent.innerHTML = html;
+      
+      // Add event listener to the new button
+      document.getElementById('backToPropertyBtn').addEventListener('click', restorePropertyView);
+    }
+
+    async function loadComps(bbl) {
+      const container = document.getElementById('panelComps');
+      if (!container) return;
+      
+      container.innerHTML = '<div style="padding:10px; color:#94a3b8;">Finding similar sales nearby...</div>';
+      
+      try {
+        const res = await fetch(`/api/properties/${bbl}/comps?radius=0.25&limit=5`);
+        
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Server Error: ${res.status} ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        
+        if (!data.comps || data.comps.length === 0) {
+          container.innerHTML = '<div style="padding:10px; color:#94a3b8;">No recent comparable sales found nearby.</div>';
+          return;
+        }
+        
+        const stats = data.marketStats;
+        const html = `
+          <div style="margin-bottom: 10px; padding: 8px; background: #f0f9ff; border-radius: 4px; border-left: 3px solid #2563eb;">
+            <div style="font-size: 11px; color: #64748b; text-transform: uppercase;">Area Average</div>
+            <div style="font-weight: 600; color: #1e293b;">
+              $${formatNumber(stats.avgPricePerSF)}/SF
+              <span style="font-weight: 400; color: #64748b; font-size: 11px;">(based on ${stats.count} sales)</span>
+            </div>
+          </div>
+          
+          <div class="comps-list">
+            ${data.comps.map(c => `
+              <div class="comp-item" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px;">
+                <div style="flex: 1;">
+                  <div style="font-weight: 500;">${c.address || 'No Address'}</div>
+                  <div style="color: #64748b; font-size: 11px;">
+                    ${c.dist_miles} mi • ${formatNumber(c.bldgarea)} SF • ${new Date(c.sale_date).toLocaleDateString()}
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-weight: 600;">$${formatNumber(c.sale_price)}</div>
+                  <div style="color: #64748b; font-size: 11px;">$${formatNumber(c.price_per_sf)}/SF</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        
+        container.innerHTML = html;
+        
+      } catch (e) {
+        console.error('Error loading comps:', e);
+        container.innerHTML = `<div style="padding:10px; color:#ef4444;">
+          Failed to load market context.<br>
+          <span style="font-size:10px; color:#666;">${e.message}</span>
+        </div>`;
+      }
+    }
+
+    function renderMap() {
+      // Clear existing markers
+      state.markers.forEach(item => item.marker.remove());
+      state.markers = [];
+      
+      // Items are already filtered by /api/data
+      let items = state.data.properties.filter(p => p.latitude && p.longitude);
+      
+      // Add markers (limit for performance)
+      items.slice(0, 200).forEach(p => {
+        const el = document.createElement('div');
+        el.className = 'map-marker';
+        el.dataset.bbl = p.bbl; // Store BBL for selection
+        
+        // Color by building class
+        const colors = {
+          'O': '#2563eb', // Office - blue
+          'K': '#10b981', // Retail - green
+          'D': '#8b5cf6', // Multifamily - purple
+          'E': '#f59e0b', // Warehouse - orange
+          'R': '#ec4899'  // Condo - pink
+        };
+        el.style.backgroundColor = colors[p.bldgclass?.[0]] || '#64748b';
+        
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([p.longitude, p.latitude])
+          .addTo(state.map);
+        
+        el.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent map click
+          selectProperty(p.bbl);
+        });
+        
+        state.markers.push({ marker, element: el, bbl: p.bbl });
+      });
+    }
+
+    async function selectProperty(bbl) {
+      // Close owner panel if it's open
+      closeOwnerPanel();
+      
+      let property = state.data.properties.find(p => p.bbl === bbl);
+      
+      // If not in main list, try to find in other lists or fetch
+      if (!property) {
+        // Check opportunities
+        property = state.opportunities.find(p => p.bbl === bbl);
+      }
+      
+      if (!property) {
+        // Not found locally, fetch from server
+        try {
+          const res = await fetch(`/api/properties/${bbl}`);
+          if (res.ok) {
+            const fetched = await res.json();
+            // Normalize coordinates
+            fetched.latitude = fetched.latitude || fetched.lat;
+            fetched.longitude = fetched.longitude || fetched.lng;
+            property = fetched;
+          }
+        } catch (e) {
+          console.error('Failed to fetch property for selection:', e);
+        }
+      }
+
+      if (!property) {
+        console.warn('Property not found:', bbl);
+        return;
+      }
+      
+      state.selectedProperty = property;
+      
+      // Highlight marker if it exists, otherwise create a temporary one
+      document.querySelectorAll('.map-marker').forEach(el => el.classList.remove('selected'));
+      let markerItem = state.markers.find(m => m.bbl === bbl);
+      
+      if (!markerItem && property.latitude && property.longitude) {
+        // Create temporary marker
+        const el = document.createElement('div');
+        el.className = 'map-marker selected'; // Start selected
+        el.dataset.bbl = property.bbl;
+        
+        // Default color or derive from class if available
+        const colors = {
+          'O': '#2563eb', 
+          'K': '#10b981', 
+          'D': '#8b5cf6', 
+          'E': '#f59e0b', 
+          'R': '#ec4899'
+        };
+        el.style.backgroundColor = colors[property.bldgclass?.[0]] || '#64748b';
+        
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([property.longitude, property.latitude])
+          .addTo(state.map);
+          
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectProperty(property.bbl);
+        });
+        
+        markerItem = { marker, element: el, bbl: property.bbl };
+        state.markers.push(markerItem);
+      } else if (markerItem && markerItem.element) {
+        markerItem.element.classList.add('selected');
+      }
+      
+      // Fetch detailed data (including violations/permits) from API if we haven't already
+      let data = property; 
+      // If we just fetched it above, 'property' already has full data. 
+      // If we got it from state.properties, it might be partial.
+      // We can just re-fetch to be safe or check if it has violations field
+      if (!property.violations) {
+        try {
+          const res = await fetch(`/api/properties/${bbl}`);
+          if (res.ok) {
+            const apiData = await res.json();
+            data = { ...property, ...apiData };
+            // Ensure coords are normalized in combined object too
+            data.latitude = data.latitude || data.lat;
+            data.longitude = data.longitude || data.lng;
+          }
+        } catch (e) {
+          console.error('Failed to fetch detailed property data:', e);
+        }
+      }
+      
+      // Fly to property
+      if (data.latitude && data.longitude) {
+        state.map.flyTo({
+          center: [data.longitude, data.latitude],
+          zoom: 17
+        });
+        
+        // If no marker exists (because it wasn't in the filtered list), 
+        // consider adding a temporary one or just relying on the panel + center
+      } else {
+        console.warn('No coordinates for property, cannot fly to it', data);
+      }
+
+      // --- Investment Analytics Population ---
+      
+      // Try to find enriched data from opportunities if not present
+      let enriched = property;
+      if (property.opportunityScore === undefined) {
+        const oppMatch = state.opportunities.find(o => o.bbl === bbl);
+        if (oppMatch) enriched = oppMatch;
+      }
+
+      // Calculate Tenure if missing (using loaded sales)
+      let tenure = enriched.tenure;
+      let lastSalePrice = enriched.lastSalePrice;
+      
+      if (tenure === undefined) {
+        // Try to find in sales list
+        const propertySales = state.data.sales.filter(s => s.bbl === bbl);
+        if (propertySales.length > 0) {
+          // Sort by date desc
+          propertySales.sort((a, b) => new Date(b.sale_date) - new Date(a.sale_date));
+          const lastSale = propertySales[0];
+          const saleDate = new Date(lastSale.sale_date);
+          const now = new Date();
+          tenure = ((now - saleDate) / (1000 * 60 * 60 * 24 * 365)).toFixed(1);
+          lastSalePrice = lastSale.sale_price;
+        } else {
+          tenure = '10+'; // Assumption if no recent sales found
+        }
+      }
+
+      // Calculate Assessment Ratio
+      let assessRatio = enriched.assessmentRatio;
+      if (assessRatio === undefined && lastSalePrice && lastSalePrice > 1000) {
+        assessRatio = (property.assesstot || 0) / lastSalePrice;
+      }
+
+      // Update Panel Fields
+      document.getElementById('panelScore').textContent = enriched.opportunityScore || getClientSideScore(property);
+      document.getElementById('panelScore').className = 'data-value large ' + (enriched.opportunityScore >= 50 ? 'text-success' : '');
+      
+      document.getElementById('panelTenure').textContent = tenure ? `${tenure} yr` : '-';
+      document.getElementById('panelFarGap').textContent = (property.far_gap || 0).toFixed(2);
+      document.getElementById('panelAssessRatio').textContent = assessRatio ? assessRatio.toFixed(2) : '-';
+
+      // --- End Investment Analytics ---
+      
+      // Update panel
+      document.getElementById('panelAddress').textContent = property.address || 'No Address';
+      document.getElementById('panelBBL').textContent = `BBL: ${property.bbl}`;
+      document.getElementById('panelBldgSF').textContent = formatNumber(property.bldgarea) + ' SF';
+      document.getElementById('panelLotSF').textContent = formatNumber(property.lotarea) + ' SF';
+      document.getElementById('panelYearBuilt').textContent = property.yearbuilt || '-';
+      document.getElementById('panelFloors').textContent = property.numfloors || '-';
+      document.getElementById('panelClass').textContent = property.bldgclass || '-';
+      document.getElementById('panelUnits').textContent = property.unitstotal || '-';
+      document.getElementById('panelZoning').textContent = property.zonedist1 || '-';
+      document.getElementById('panelBuiltFAR').textContent = property.builtfar?.toFixed(2) || '-';
+      document.getElementById('panelCommFAR').textContent = property.commfar?.toFixed(2) || '-';
+      
+      // Calculate buildable SF if not from DB
+      const buildableSF = property.lotarea && property.commfar && property.bldgarea
+        ? Math.max(0, (property.lotarea * property.commfar) - property.bldgarea)
+        : 0;
+      document.getElementById('panelBuildable').textContent = formatNumber(Math.round(buildableSF)) + ' SF';
+
+      // FAR Gap Stats (use snake_case from Supabase)
+      const farGap = property.far_gap || 0;
+      const unusedSF = property.unused_sf || 0;
+      // utilization might not be in DB, calculate it
+      const utilization = property.commfar ? ((property.builtfar || 0) / property.commfar * 100).toFixed(1) + '%' : 'N/A';
+
+      const statsHtml = `
+        <div class="stat-row">
+          <span class="label">FAR Utilization</span>
+          <span class="value">${utilization}</span>
+        </div>
+        <div class="stat-row ${farGap > 2 ? 'highlight-opportunity' : ''}">
+          <span class="label">Unused FAR</span>
+          <span class="value">${farGap.toFixed(1)} (${formatNumber(unusedSF)} SF potential)</span>
+        </div>
+      `;
+      document.getElementById('panelFarStats').innerHTML = statsHtml;
+      
+      // Owner Link
+      const ownerEl = document.getElementById('panelOwner');
+      if (property.ownername) {
+        // Escape quotes in name for onclick
+        const safeName = property.ownername.replace(/'/g, "\\'");
+        ownerEl.innerHTML = `<span class="owner-link" onclick="openOwnerPanel('${safeName}')">${property.ownername}</span>`;
+      } else {
+        ownerEl.textContent = '-';
+      }
+      
+      document.getElementById('panelAssessed').textContent = '$' + formatNumber(property.assesstot);
+      document.getElementById('panelExempt').textContent = '$' + formatNumber(property.exempttot);
+      document.getElementById('panelPermits').textContent = data.permits ? data.permits.length : 0;
+      document.getElementById('panelViolations').textContent = data.violations ? data.violations.length : 0;
+
+      // Update Distress Section
+      if (data.distress_score > 0) {
+        document.getElementById('panelDistressScore').textContent = data.distress_score;
+        document.getElementById('panelDistressScore').style.color = data.distress_score >= 20 ? '#ef4444' : '#f59e0b';
+      } else {
+        document.getElementById('panelDistressScore').textContent = 'None';
+        document.getElementById('panelDistressScore').style.color = '#10b981';
+      }
+      document.getElementById('panelDistressDate').textContent = data.last_distress_update ? new Date(data.last_distress_update).toLocaleDateString() : '-';
+
+      // List Violations
+      const violationsList = document.getElementById('panelViolationsList');
+      if (data.violations && data.violations.length > 0) {
+        violationsList.innerHTML = data.violations.map(v => `
+          <div style="padding: 8px; border-bottom: 1px solid #eee; font-size: 12px;">
+            <div style="font-weight:600; display:flex; justify-content:space-between;">
+              <span style="color: #ef4444;">${v.violation_type} ${v.violation_id}</span>
+              <span>${v.issue_date || '-'}</span>
+            </div>
+            <div style="color: #64748b; margin-top: 2px;">${v.description || 'No description'}</div>
+          </div>
+        `).join('');
+      } else {
+        violationsList.innerHTML = '<div style="color: #94a3b8; font-style: italic; padding: 8px;">No open violations</div>';
+      }
+
+      // Load Sales History (from property detail API)
+      const propertySales = data.sales || [];
+      
+      // Deduplicate sales (same date and price)
+      const uniqueSales = [];
+      const seenSales = new Set();
+      propertySales.forEach(s => {
+        const key = `${s.sale_date}-${s.sale_price}`;
+        if (!seenSales.has(key)) {
+          seenSales.add(key);
+          uniqueSales.push(s);
+        }
+      });
+
+      const salesHtml = uniqueSales.length > 0
+        ? uniqueSales.slice(0, 5).map(s => `
+            <div class="sales-row">
+              <span>${s.sale_date || '-'}</span>
+              <span class="sales-row-price">$${formatNumber(s.sale_price)}</span>
+            </div>
+          `).join('')
+        : '<div class="sales-row"><span>No sales on record</span></div>';
+      document.getElementById('panelSales').innerHTML = salesHtml;
+      
+      // Update button text if in portfolio
+      const inPortfolio = state.portfolio.includes(bbl);
+      document.getElementById('addToPortfolio').textContent = inPortfolio 
+        ? '✓ In Portfolio' 
+        : '+ Add to Portfolio';
+      
+      // Open panel
+      document.getElementById('propertyPanel').classList.add('open');
+      
+      // Load Comps
+      loadComps(bbl);
+      
+      // Load Notes and Activity (if logged in)
+      if (state.user) {
+        loadPropertyNote(bbl);
+        loadPropertyActivity(bbl);
+        logActivity(bbl, 'view');
+      }
+    }
+
+    function updateStats() {
+      // Use stats from unified endpoint
+      const stats = state.data.stats || {};
+      
+      document.getElementById('statProperties').textContent = formatNumber(stats.propertyCount || 0);
+      document.getElementById('statSales').textContent = formatNumber(stats.salesCount || 0);
+      document.getElementById('statPSF').textContent = '$' + formatNumber(Math.round(stats.avgPricePerSF || 0));
+    }
+
+    function addToPortfolio(bbl) {
+      if (!state.portfolio.includes(bbl)) {
+        state.portfolio.push(bbl);
+        localStorage.setItem('portfolio', JSON.stringify(state.portfolio));
+        document.getElementById('addToPortfolio').textContent = '✓ In Portfolio';
+        
+        // Log activity
+        logActivity(bbl, 'portfolio_add');
+        
+        // Reload activity display if panel is open
+        if (state.user && state.selectedProperty === bbl) {
+          loadPropertyActivity(bbl);
+        }
+      } else {
+        // Remove from portfolio
+        state.portfolio = state.portfolio.filter(b => b !== bbl);
+        localStorage.setItem('portfolio', JSON.stringify(state.portfolio));
+        document.getElementById('addToPortfolio').textContent = '+ Add to Portfolio';
+        
+        // Log activity
+        logActivity(bbl, 'portfolio_remove');
+        
+        // Reload activity display if panel is open
+        if (state.user && state.selectedProperty === bbl) {
+          loadPropertyActivity(bbl);
+        }
+      }
+    }
+
+    // ============ OWNER INTELLIGENCE PANEL ============
+    
+    let currentOwnerData = null;
+    
+    async function openOwnerPanel(ownerName) {
+      const panel = document.getElementById('ownerPanel');
+      panel.classList.add('open');
+      
+      // Show loading state
+      document.getElementById('ownerPanelName').textContent = 'Loading...';
+      document.getElementById('ownerPanelType').textContent = '';
+      document.getElementById('ownerStats').innerHTML = '<div style="text-align:center;padding:20px;color:#888;grid-column: 1 / -1;">Loading portfolio...</div>';
+      document.getElementById('ownerMetrics').innerHTML = '';
+      document.getElementById('ownerPropertiesList').innerHTML = '';
+      
+      try {
+        const response = await fetch(`/api/owners/${encodeURIComponent(ownerName)}`);
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        if (!data.owners || data.owners.length === 0) {
+          throw new Error('No properties found for this owner');
+        }
+        
+        // Use first (largest) owner match
+        const owner = data.owners[0];
+        currentOwnerData = owner;
+        
+        renderOwnerPanel(owner);
+        
+      } catch (error) {
+        console.error('Owner panel error:', error);
+        document.getElementById('ownerPanelName').textContent = 'Error';
+        document.getElementById('ownerStats').innerHTML = `<div style="text-align:center;padding:20px;color:#ef4444;grid-column: 1 / -1;">${error.message}</div>`;
+      }
+    }
+    
+    function closeOwnerPanel() {
+      document.getElementById('ownerPanel').classList.remove('open');
+      currentOwnerData = null;
+    }
+    
+    function renderOwnerPanel(owner) {
+      // Header
+      const entityClass = owner.entityType.toLowerCase().replace(/\s+/g, '-');
+      document.getElementById('ownerPanelName').innerHTML = owner.name + 
+        `<span class="entity-badge ${entityClass}">${owner.entityType}</span>`;
+      document.getElementById('ownerPanelType').textContent = 
+        `${owner.propertyCount} ${owner.propertyCount === 1 ? 'property' : 'properties'} in Midtown South`;
+      
+      // Stats grid
+      const violationClass = owner.totalOpenViolations > 10 ? 'danger' : 
+                             owner.totalOpenViolations > 5 ? 'warning' : '';
+      
+      document.getElementById('ownerStats').innerHTML = `
+        <div class="owner-stat">
+          <div class="owner-stat-value">${owner.propertyCount}</div>
+          <div class="owner-stat-label">Properties</div>
+        </div>
+        <div class="owner-stat">
+          <div class="owner-stat-value">$${formatMillions(owner.totalAssessed)}</div>
+          <div class="owner-stat-label">Assessed Value</div>
+        </div>
+        <div class="owner-stat">
+          <div class="owner-stat-value ${violationClass}">${owner.totalOpenViolations}</div>
+          <div class="owner-stat-label">Open Violations</div>
+        </div>
+      `;
+      
+      // Metrics
+      const holdingPeriodText = owner.avgHoldingPeriod 
+        ? `${owner.avgHoldingPeriod} years` 
+        : 'Unknown';
+      
+      const concentrationPct = Math.round(owner.concentrationScore * 100);
+      
+      document.getElementById('ownerMetrics').innerHTML = `
+        <div class="owner-metric">
+          <div class="owner-metric-label">Total Building SF</div>
+          <div class="owner-metric-value">${owner.totalSF.toLocaleString()} SF</div>
+        </div>
+        <div class="owner-metric">
+          <div class="owner-metric-label">Avg Holding Period</div>
+          <div class="owner-metric-value">${holdingPeriodText}</div>
+        </div>
+        <div class="owner-metric">
+          <div class="owner-metric-label">Geographic Concentration</div>
+          <div class="owner-metric-value">${concentrationPct}%</div>
+          <div class="owner-metric-bar">
+            <div class="owner-metric-bar-fill" style="width: ${concentrationPct}%"></div>
+          </div>
+        </div>
+        <div class="owner-metric">
+          <div class="owner-metric-label">Unique Blocks</div>
+          <div class="owner-metric-value">${owner.blocks.length} blocks</div>
+        </div>
+      `;
+      
+      // Properties list
+      document.getElementById('ownerPropertiesHeader').textContent = 
+        `Properties (${owner.properties.length})`;
+      
+      const propertiesHtml = owner.properties.map(p => {
+        const violBadge = (p.openViolations || 0) > 0 
+          ? `<span class="owner-property-badge violation">${p.openViolations} violations</span>` 
+          : '';
+        
+        return `
+          <div class="owner-property-card" data-bbl="${p.bbl}">
+            <div class="owner-property-address">${p.address || p.bbl}</div>
+            <div class="owner-property-meta">
+              <span>${p.bldgclass || '?'}</span>
+              <span>${(p.bldgarea || 0).toLocaleString()} SF</span>
+              <span>$${formatMillions(p.assesstot)}</span>
+              ${violBadge}
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      document.getElementById('ownerPropertiesList').innerHTML = propertiesHtml;
+      
+      // Add click handlers to property cards
+      document.querySelectorAll('.owner-property-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const bbl = card.dataset.bbl;
+          closeOwnerPanel();
+          selectProperty(bbl);
+        });
+      });
+    }
+    
+    function formatMillions(value) {
+      if (!value) return '0';
+      if (value >= 1000000) {
+        return (value / 1000000).toFixed(1) + 'M';
+      }
+      if (value >= 1000) {
+        return (value / 1000).toFixed(0) + 'K';
+      }
+      return value.toString();
+    }
+    
+    function viewOwnerOnMap() {
+      if (!currentOwnerData || !currentOwnerData.properties) return;
+      
+      closeOwnerPanel();
+      
+      // Get coordinates of owner's properties
+      const coords = currentOwnerData.properties
+        .filter(p => p.lat && p.lng)
+        .map(p => [p.lng, p.lat]);
+      
+      if (coords.length > 0 && state.map) {
+        // Fit map to show all owner's properties
+        const bounds = coords.reduce((bounds, coord) => {
+          return bounds.extend(coord);
+        }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+        
+        state.map.fitBounds(bounds, { padding: 50 });
+        
+        // Highlight owner's properties on map
+        const ownerBbls = new Set(currentOwnerData.properties.map(p => p.bbl));
+        state.markers.forEach(markerItem => {
+          if (ownerBbls.has(markerItem.bbl)) {
+            markerItem.element.style.outline = '3px solid #3b82f6';
+            markerItem.element.style.outlineOffset = '2px';
+          } else {
+            markerItem.element.style.outline = 'none';
+          }
+        });
+      }
+    }
+    
+    function exportOwnerData() {
+      if (!currentOwnerData) return;
+      
+      const owner = currentOwnerData;
+      const rows = [
+        ['BBL', 'Address', 'Class', 'Building SF', 'Lot SF', 'Assessed Value', 'Year Built', 'Open Violations']
+      ];
+      
+      owner.properties.forEach(p => {
+        rows.push([
+          p.bbl,
+          (p.address || '').replace(/,/g, ' '),
+          p.bldgclass || '',
+          p.bldgarea || '',
+          p.lotarea || '',
+          p.assesstot || '',
+          p.yearbuilt || '',
+          p.openViolations || 0
+        ]);
+      });
+      
+      const csv = rows.map(row => row.join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${owner.name.replace(/[^a-z0-9]/gi, '_')}_portfolio.csv`;
+      a.click();
+      
+      URL.revokeObjectURL(url);
+    }
+    
+    // Event listeners for owner panel
+    document.getElementById('closeOwnerPanel').addEventListener('click', closeOwnerPanel);
+    document.getElementById('viewOwnerOnMap').addEventListener('click', viewOwnerOnMap);
+    document.getElementById('exportOwnerData').addEventListener('click', exportOwnerData);
+
+    // ============ HEATMAP FUNCTIONALITY ============
+    
+    let currentHeatmapMode = 'markers';
+    let heatmapData = null;
+    
+    async function loadHeatmap(metric) {
+      try {
+        const response = await fetch(`/api/heatmap?metric=${metric}`);
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        heatmapData = data;
+        renderHeatmap(data);
+        
+      } catch (error) {
+        console.error('Heatmap error:', error);
+      }
+    }
+    
+    function renderHeatmap(data) {
+      if (!state.map) return;
+      
+      // Convert to GeoJSON
+      const geojson = {
+        type: 'FeatureCollection',
+        features: data.cells.map(cell => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [cell.lng, cell.lat]
+          },
+          properties: {
+            value: cell.value,
+            count: cell.count
+          }
+        }))
+      };
+      
+      // Update or create heatmap source
+      if (state.map.getSource('heatmap-data')) {
+        state.map.getSource('heatmap-data').setData(geojson);
+      } else {
+        state.map.addSource('heatmap-data', {
+          type: 'geojson',
+          data: geojson
+        });
+      }
+      
+      // Add heatmap layer if it doesn't exist
+      if (!state.map.getLayer('heatmap-layer')) {
+        state.map.addLayer({
+          id: 'heatmap-layer',
+          type: 'heatmap',
+          source: 'heatmap-data',
+          paint: {
+            'heatmap-weight': [
+              'interpolate',
+              ['linear'],
+              ['get', 'value'],
+              0, 0,
+              data.max, 1
+            ],
+            'heatmap-intensity': 1,
+            'heatmap-radius': 30,
+            'heatmap-opacity': 0.8,
+            'heatmap-color': getHeatmapColor(data.metric)
+          }
+        });
+      } else {
+        // Update color scheme
+        state.map.setPaintProperty('heatmap-layer', 'heatmap-color', getHeatmapColor(data.metric));
+        state.map.setPaintProperty('heatmap-layer', 'heatmap-weight', [
+          'interpolate',
+          ['linear'],
+          ['get', 'value'],
+          0, 0,
+          data.max, 1
+        ]);
+      }
+      
+      // Show heatmap layer, hide markers
+      state.map.setLayoutProperty('heatmap-layer', 'visibility', 'visible');
+      state.markers.forEach(m => m.element.style.display = 'none');
+      
+      // Update legend
+      updateLegend(data.metric);
+    }
+    
+    function getHeatmapColor(metric) {
+      const colors = {
+        opportunity: [
+          'interpolate', ['linear'], ['heatmap-density'],
+          0, 'rgba(0,0,0,0)',
+          0.2, '#22c55e',
+          0.4, '#eab308',
+          0.6, '#f97316',
+          1, '#ef4444'
+        ],
+        price: [
+          'interpolate', ['linear'], ['heatmap-density'],
+          0, 'rgba(0,0,0,0)',
+          0.2, '#3b82f6',
+          0.4, '#8b5cf6',
+          0.6, '#ec4899',
+          1, '#ef4444'
+        ],
+        distress: [
+          'interpolate', ['linear'], ['heatmap-density'],
+          0, 'rgba(0,0,0,0)',
+          0.2, '#22c55e',
+          0.4, '#eab308',
+          0.6, '#f97316',
+          1, '#ef4444'
+        ]
+      };
+      return colors[metric] || colors.opportunity;
+    }
+    
+    function updateLegend(metric) {
+      const titles = {
+        opportunity: 'Opportunity Density',
+        price: 'Price per SF',
+        distress: 'Violation Concentration'
+      };
+      
+      const gradients = {
+        opportunity: 'linear-gradient(to right, #22c55e, #eab308, #f97316, #ef4444)',
+        price: 'linear-gradient(to right, #3b82f6, #8b5cf6, #ec4899, #ef4444)',
+        distress: 'linear-gradient(to right, #22c55e, #eab308, #f97316, #ef4444)'
+      };
+      
+      document.getElementById('legendTitle').textContent = titles[metric] || 'Heatmap';
+      document.getElementById('legendGradient').style.background = gradients[metric];
+      document.getElementById('heatmapLegend').classList.add('visible');
+    }
+    
+    function hideHeatmap() {
+      if (!state.map) return;
+      
+      if (state.map.getLayer('heatmap-layer')) {
+        state.map.setLayoutProperty('heatmap-layer', 'visibility', 'none');
+      }
+      
+      // Show markers
+      state.markers.forEach(m => m.element.style.display = 'block');
+      
+      // Hide legend
+      document.getElementById('heatmapLegend').classList.remove('visible');
+    }
+    
+    // Heatmap toggle event listeners
+    document.querySelectorAll('.heatmap-toggle').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const mode = btn.dataset.mode;
+        
+        // Update active state
+        document.querySelectorAll('.heatmap-toggle').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        currentHeatmapMode = mode;
+        
+        if (mode === 'markers') {
+          hideHeatmap();
+        } else {
+          await loadHeatmap(mode);
+        }
+      });
+    });
+
+    // ============ AUTHENTICATION ============
+    
+    async function checkAuth() {
+      if (!state.accessToken) {
+        updateAuthUI(null);
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (data.user) {
+          state.user = data.user;
+          updateAuthUI(data.user);
+        } else {
+          // Token invalid, clear it
+          state.accessToken = null;
+          localStorage.removeItem('accessToken');
+          updateAuthUI(null);
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        updateAuthUI(null);
+      }
+    }
+    
+    function updateAuthUI(user) {
+      const container = document.getElementById('authContainer');
+      
+      if (user) {
+        container.innerHTML = `
+          <span class="user-email">${user.email}</span>
+          <button class="auth-button secondary" id="logoutButton">Sign Out</button>
+        `;
+        
+        document.getElementById('logoutButton').addEventListener('click', logout);
+      } else {
+        container.innerHTML = `
+          <button class="auth-button" id="loginButton">Sign In</button>
+        `;
+        
+        document.getElementById('loginButton').addEventListener('click', openAuthModal);
+      }
+    }
+    
+    function openAuthModal() {
+      document.getElementById('authModal').classList.add('visible');
+      document.getElementById('usernameInput').value = '';
+      document.getElementById('passwordInput').value = '';
+      document.getElementById('authMessage').innerHTML = '';
+      document.getElementById('usernameInput').focus();
+    }
+    
+    function closeAuthModal() {
+      document.getElementById('authModal').classList.remove('visible');
+    }
+    
+    async function login(username, password) {
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // Store token and user
+          state.accessToken = data.token;
+          state.user = data.user;
+          localStorage.setItem('accessToken', data.token);
+          
+          // Update UI
+          updateAuthUI(data.user);
+          closeAuthModal();
+          
+          // Load saved searches
+          await loadSavedSearches();
+          
+          showAuthMessage('success', `✅ Welcome, ${data.user.email}!`);
+          
+          // Reload data if needed
+          setTimeout(() => {
+            document.getElementById('authMessage').innerHTML = '';
+          }, 2000);
+        } else {
+          showAuthMessage('error', data.error || 'Login failed');
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        showAuthMessage('error', 'Network error. Please try again.');
+      }
+    }
+    
+    function showAuthMessage(type, message) {
+      const container = document.getElementById('authMessage');
+      container.className = `auth-message ${type}`;
+      container.textContent = message;
+    }
+    
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
+      
+      // Clear local state
+      state.user = null;
+      state.accessToken = null;
+      localStorage.removeItem('accessToken');
+      
+      updateAuthUI(null);
+    }
+    
+    // Auth event listeners
+    document.getElementById('authForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const username = document.getElementById('usernameInput').value;
+      const password = document.getElementById('passwordInput').value;
+      login(username, password);
+    });
+    
+    document.getElementById('cancelAuth').addEventListener('click', closeAuthModal);
+    
+    document.getElementById('authModal').addEventListener('click', (e) => {
+      if (e.target.id === 'authModal') {
+        closeAuthModal();
+      }
+    });
+
+    // ============ DASHBOARD ============
+    
+    async function loadDashboard() {
+      const container = document.getElementById('dashboardContainer');
+      container.innerHTML = '<div class="loading">Loading dashboard...</div>';
+      
+      try {
+        // Load all dashboard data
+        const [summary, market, opportunities] = await Promise.all([
+          loadPortfolioSummary(),
+          loadMarketPulse(),
+          loadTopOpportunities()
+        ]);
+        
+        renderDashboard(summary, market, opportunities);
+      } catch (error) {
+        console.error('Dashboard load error:', error);
+        container.innerHTML = '<div class="error">Failed to load dashboard</div>';
+      }
+    }
+    
+    async function loadPortfolioSummary() {
+      try {
+        const response = await fetch('/api/dashboard/summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bbls: state.portfolio })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Portfolio summary error:', error);
+        return { propertyCount: 0, totalAssessed: 0, avgFarGap: 0, newViolations: 0 };
+      }
+    }
+    
+    async function loadMarketPulse() {
+      try {
+        const response = await fetch('/api/dashboard/market-pulse');
+        return await response.json();
+      } catch (error) {
+        console.error('Market pulse error:', error);
+        return { salesThisMonth: 0, avgByClass: [], totalVolume: 0 };
+      }
+    }
+    
+    async function loadTopOpportunities() {
+      try {
+        const response = await fetch('/api/dashboard/opportunities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bbls: state.portfolio })
+        });
+        const data = await response.json();
+        return data.opportunities || [];
+      } catch (error) {
+        console.error('Opportunities error:', error);
+        return [];
+      }
+    }
+    
+    function renderDashboard(summary, market, opportunities) {
+      const container = document.getElementById('dashboardContainer');
+      
+      container.innerHTML = `
+        <!-- Portfolio Summary -->
+        <div class="dashboard-stats">
+          <div class="stat-card">
+            <div class="stat-label">Portfolio</div>
+            <div class="stat-value">${summary.propertyCount}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Value</div>
+            <div class="stat-value">$${formatNumber(Math.round(summary.totalAssessed / 1000000))}M</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg FAR Gap</div>
+            <div class="stat-value">${summary.avgFarGap}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">New Violations</div>
+            <div class="stat-value">
+              ${summary.newViolations}
+              ${summary.newViolations > 0 ? '<span class="stat-badge new">NEW</span>' : ''}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Market Pulse & Opportunities Grid -->
+        <div class="dashboard-grid">
+          <!-- Market Pulse -->
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">📈 Market Pulse (30 Days)</div>
+            <div class="market-stat">
+              <div class="market-stat-label">Sales This Month</div>
+              <div class="market-stat-value">${market.salesThisMonth}</div>
+            </div>
+            <div class="market-stat">
+              <div class="market-stat-label">Total Volume</div>
+              <div class="market-stat-value">$${formatNumber(Math.round(market.totalVolume / 1000000))}M</div>
+            </div>
+            <div class="market-stat">
+              <div class="market-stat-label">Avg Price/SF</div>
+              <div class="market-stat-value">$${formatNumber(market.avgPriceSF || 0)}</div>
+            </div>
+          </div>
+          
+          <!-- Quick Stats -->
+          <div class="dashboard-section">
+            <div class="dashboard-section-title">🎯 Quick Stats</div>
+            <div class="market-stat">
+              <div class="market-stat-label">Properties in Area</div>
+              <div class="market-stat-value">${formatNumber(state.data.properties.length)}</div>
+            </div>
+            <div class="market-stat">
+              <div class="market-stat-label">Recent Sales</div>
+              <div class="market-stat-value">${formatNumber(state.data.sales.length)}</div>
+            </div>
+            <div class="market-stat">
+              <div class="market-stat-label">High Opportunity (FAR > 2)</div>
+              <div class="market-stat-value">${formatNumber(state.data.properties.filter(p => p.far_gap > 2).length)}</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Top Opportunities -->
+        <div class="dashboard-section">
+          <div class="dashboard-section-title">🔥 Top Opportunities (Not in Portfolio)</div>
+          ${opportunities.length > 0 ? `
+            <div class="opportunity-cards">
+              ${opportunities.map(prop => `
+                <div class="opportunity-card" onclick="openDueDiligencePage('${prop.bbl}')">
+                  <div class="opportunity-card-address">${prop.address || 'Address N/A'}</div>
+                  <div class="opportunity-card-stats">
+                    <span>FAR Gap: ${prop.far_gap?.toFixed(1) || 'N/A'}</span>
+                    <span>Class: ${prop.bldgclass || 'N/A'}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="empty-state">
+              <div class="empty-state-icon">🎯</div>
+              <div>No opportunities found. Try adjusting your filters.</div>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // ============ DUE DILIGENCE PAGE ============
+    
+    let ddState = {
+      currentTab: 'overview',
+      property: null,
+      comps: null
+    };
+    
+    async function openDueDiligencePage(bbl) {
+      // Update URL
+      history.pushState({ view: 'dd', bbl }, '', `/property/${bbl}`);
+      
+      // Show page
+      document.getElementById('ddPage').classList.add('active');
+      document.getElementById('ddContent').innerHTML = '<div class="loading">Loading property details...</div>';
+      
+      // Load property data
+      try {
+        const [property, comps] = await Promise.all([
+          fetch(`/api/properties/${bbl}`).then(r => r.json()),
+          fetch(`/api/properties/${bbl}/comps`).then(r => r.json())
+        ]);
+        
+        ddState.property = property;
+        ddState.comps = comps.comps || [];
+        
+        // Update header
+        document.getElementById('ddTitle').textContent = property.address || 'Address N/A';
+        document.getElementById('ddSubtitle').textContent = 
+          `${property.bldgclass || 'N/A'} · ${formatNumber(property.bldgsf || 0)} SF · Built ${property.yearbuilt || 'N/A'} · Block ${property.block || 'N/A'}`;
+        
+        // Update save button
+        const isSaved = state.portfolio.includes(bbl);
+        document.getElementById('ddSaveBtn').textContent = isSaved ? '★ Saved' : '☆ Save to Portfolio';
+        
+        // Render current tab
+        renderDDTab(ddState.currentTab);
+        
+      } catch (error) {
+        console.error('DD page load error:', error);
+        document.getElementById('ddContent').innerHTML = 
+          '<div class="error">Failed to load property details</div>';
+      }
+    }
+    
+    function closeDueDiligencePage() {
+      document.getElementById('ddPage').classList.remove('active');
+      history.pushState({ view: 'main' }, '', '/');
+    }
+    
+    function renderDDTab(tabName) {
+      ddState.currentTab = tabName;
+      
+      // Update tab buttons
+      document.querySelectorAll('.dd-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.ddTab === tabName);
+      });
+      
+      // Render content
+      const content = document.getElementById('ddContent');
+      
+      switch(tabName) {
+        case 'overview':
+          content.innerHTML = renderOverviewTab();
+          break;
+        case 'financials':
+          content.innerHTML = renderFinancialsTab();
+          break;
+        case 'zoning':
+          content.innerHTML = renderZoningTab();
+          break;
+        case 'distress':
+          content.innerHTML = renderDistressTab();
+          break;
+        case 'documents':
+          content.innerHTML = renderDocumentsTab();
+          break;
+      }
+    }
+    
+    function renderOverviewTab() {
+      const p = ddState.property;
+      
+      return `
+        <div class="dd-section">
+          <div class="dd-section-title">Key Statistics</div>
+          <div class="dd-grid">
+            <div class="dd-stat">
+              <div class="dd-stat-label">Assessed Value</div>
+              <div class="dd-stat-value">$${formatNumber(p.assesstot || 0)}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Lot Area</div>
+              <div class="dd-stat-value">${formatNumber(p.lotarea || 0)} SF</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Building Area</div>
+              <div class="dd-stat-value">${formatNumber(p.bldgsf || 0)} SF</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Floors</div>
+              <div class="dd-stat-value">${p.numfloors || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Year Built</div>
+              <div class="dd-stat-value">${p.yearbuilt || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Owner</div>
+              <div class="dd-stat-value" style="font-size: 14px; cursor: pointer; color: var(--primary);" 
+                   onclick="openOwnerPanel('${p.ownername}')">
+                ${p.ownername || 'N/A'}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="dd-section">
+          <div class="dd-section-title">Opportunity Score</div>
+          <div class="dd-grid">
+            <div class="dd-stat">
+              <div class="dd-stat-label">Overall Score</div>
+              <div class="dd-stat-value">${p.opportunity_score || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">FAR Gap</div>
+              <div class="dd-stat-value">${p.far_gap?.toFixed(2) || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Unused SF</div>
+              <div class="dd-stat-value">${formatNumber(p.unused_sf || 0)}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Distress Score</div>
+              <div class="dd-stat-value">${p.distress_score || 0}</div>
+            </div>
+          </div>
+        </div>
+        
+        ${ddState.comps.length > 0 ? `
+          <div class="dd-section">
+            <div class="dd-section-title">Comparable Sales (${ddState.comps.length})</div>
+            <table class="dd-table">
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Date</th>
+                  <th>Price</th>
+                  <th>$/SF</th>
+                  <th>Distance</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ddState.comps.slice(0, 5).map(comp => `
+                  <tr>
+                    <td>${comp.address || 'N/A'}</td>
+                    <td>${comp.sale_date ? new Date(comp.sale_date).toLocaleDateString() : 'N/A'}</td>
+                    <td>$${formatNumber(comp.sale_price || 0)}</td>
+                    <td>$${formatNumber(comp.price_per_sf || 0)}</td>
+                    <td>${comp.distance_ft ? Math.round(comp.distance_ft) + ' ft' : 'N/A'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : ''}
+      `;
+    }
+    
+    function renderFinancialsTab() {
+      const p = ddState.property;
+      const sales = p.sales || [];
+      
+      return `
+        <div class="dd-section">
+          <div class="dd-section-title">Sale History</div>
+          ${sales.length > 0 ? `
+            <table class="dd-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Price</th>
+                  <th>$/SF</th>
+                  <th>Buyer</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sales.map(sale => `
+                  <tr>
+                    <td>${sale.sale_date ? new Date(sale.sale_date).toLocaleDateString() : 'N/A'}</td>
+                    <td>$${formatNumber(sale.sale_price || 0)}</td>
+                    <td>$${formatNumber(sale.price_per_sf || 0)}</td>
+                    <td>${sale.buyer || 'N/A'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : '<p>No recorded sales</p>'}
+        </div>
+        
+        <div class="dd-section">
+          <div class="dd-section-title">Valuation</div>
+          <div class="dd-grid">
+            <div class="dd-stat">
+              <div class="dd-stat-label">Assessed Land</div>
+              <div class="dd-stat-value">$${formatNumber(p.assessland || 0)}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Assessed Total</div>
+              <div class="dd-stat-value">$${formatNumber(p.assesstot || 0)}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Exempt Land</div>
+              <div class="dd-stat-value">$${formatNumber(p.exemptland || 0)}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Exempt Total</div>
+              <div class="dd-stat-value">$${formatNumber(p.exempttot || 0)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    function renderZoningTab() {
+      const p = ddState.property;
+      const builtFAR = p.builtfar || 0;
+      const maxFAR = Math.max(p.commfar || 0, p.residfar || 0);
+      const farUtilization = maxFAR > 0 ? (builtFAR / maxFAR) * 100 : 0;
+      
+      return `
+        <div class="dd-section">
+          <div class="dd-section-title">Zoning Information</div>
+          <div class="dd-grid">
+            <div class="dd-stat">
+              <div class="dd-stat-label">Zoning District</div>
+              <div class="dd-stat-value" style="font-size: 16px;">${p.zonedist1 || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Commercial FAR</div>
+              <div class="dd-stat-value">${p.commfar?.toFixed(2) || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Residential FAR</div>
+              <div class="dd-stat-value">${p.residfar?.toFixed(2) || 'N/A'}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Built FAR</div>
+              <div class="dd-stat-value">${builtFAR.toFixed(2)}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="dd-section">
+          <div class="dd-section-title">Development Potential</div>
+          <p style="margin-bottom: 8px; color: var(--text-light); font-size: 14px;">
+            FAR Utilization: ${farUtilization.toFixed(1)}%
+          </p>
+          <div class="dd-far-bar">
+            <div class="dd-far-fill" style="width: ${Math.min(farUtilization, 100)}%">
+              ${builtFAR.toFixed(2)} / ${maxFAR.toFixed(2)}
+            </div>
+            ${p.far_gap > 0 ? `<div class="dd-far-unused">${p.far_gap.toFixed(2)} FAR Available</div>` : ''}
+          </div>
+          
+          <div class="dd-grid" style="margin-top: 20px;">
+            <div class="dd-stat">
+              <div class="dd-stat-label">Lot Area</div>
+              <div class="dd-stat-value">${formatNumber(p.lotarea || 0)} SF</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Unused SF</div>
+              <div class="dd-stat-value">${formatNumber(p.unused_sf || 0)} SF</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Air Rights Value</div>
+              <div class="dd-stat-value" style="font-size: 14px;">
+                ${p.unused_sf > 0 ? `~$${formatNumber(Math.round(p.unused_sf * 200))}` : 'N/A'}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    function renderDistressTab() {
+      const p = ddState.property;
+      const violations = p.violations || [];
+      const permits = p.permits || [];
+      
+      return `
+        <div class="dd-section">
+          <div class="dd-section-title">Distress Score: ${p.distress_score || 0}</div>
+          <p style="color: var(--text-light); margin-bottom: 16px;">
+            Based on violations, permits, and property condition indicators
+          </p>
+          <div class="dd-grid">
+            <div class="dd-stat">
+              <div class="dd-stat-label">Open Violations</div>
+              <div class="dd-stat-value">${violations.filter(v => v.status === 'Open').length}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Total Violations</div>
+              <div class="dd-stat-value">${violations.length}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Recent Permits</div>
+              <div class="dd-stat-value">${permits.length}</div>
+            </div>
+          </div>
+        </div>
+        
+        ${violations.length > 0 ? `
+          <div class="dd-section">
+            <div class="dd-section-title">Violations (${violations.length})</div>
+            <table class="dd-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Issue Date</th>
+                  <th>Description</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${violations.slice(0, 10).map(v => `
+                  <tr>
+                    <td>${v.violation_type || 'N/A'}</td>
+                    <td>${v.issue_date ? new Date(v.issue_date).toLocaleDateString() : 'N/A'}</td>
+                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      ${v.description || 'N/A'}
+                    </td>
+                    <td><span class="violation-badge ${v.status === 'Open' ? 'open' : 'closed'}">${v.status || 'N/A'}</span></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : '<div class="dd-section"><p>No violations on record ✓</p></div>'}
+        
+        ${permits.length > 0 ? `
+          <div class="dd-section">
+            <div class="dd-section-title">Recent Permits (${permits.length})</div>
+            <table class="dd-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Filed Date</th>
+                  <th>Status</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${permits.slice(0, 10).map(perm => `
+                  <tr>
+                    <td>${perm.permit_type || 'N/A'}</td>
+                    <td>${perm.filed_date ? new Date(perm.filed_date).toLocaleDateString() : 'N/A'}</td>
+                    <td>${perm.status || 'N/A'}</td>
+                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      ${perm.description || 'N/A'}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : ''}
+      `;
+    }
+    
+    function renderDocumentsTab() {
+      const p = ddState.property;
+      const [boro, block, lot] = p.bbl.split('-');
+      
+      return `
+        <div class="dd-section">
+          <div class="dd-section-title">NYC Public Records</div>
+          <div class="dd-link-list">
+            <a href="https://a836-acris.nyc.gov/DS/DocumentSearch/BBLResult?borough=${boro}&block=${block}&lot=${lot}" 
+               target="_blank" class="dd-link">
+              📄 ACRIS - Property Documents (Deeds, Mortgages, Liens)
+            </a>
+            <a href="https://a810-bisweb.nyc.gov/bisweb/PropertyProfileOverviewServlet?boro=${boro}&block=${block}&lot=${lot}" 
+               target="_blank" class="dd-link">
+              🏗️ DOB NOW - Building Information
+            </a>
+            <a href="https://hpdonline.hpdnyc.org/HPDonline/provide_address.aspx" 
+               target="_blank" class="dd-link">
+              🏘️ HPD Online - Housing Violations
+            </a>
+            <a href="https://zola.planning.nyc.gov/lot/${boro}/${block}/${lot}" 
+               target="_blank" class="dd-link">
+              🗺️ ZoLa - Zoning & Land Use
+            </a>
+            <a href="https://www1.nyc.gov/site/finance/taxes/property-annualized-sales-update.page" 
+               target="_blank" class="dd-link">
+              💰 DOF - Sales Data
+            </a>
+          </div>
+        </div>
+        
+        <div class="dd-section">
+          <div class="dd-section-title">Property Identifiers</div>
+          <div class="dd-grid">
+            <div class="dd-stat">
+              <div class="dd-stat-label">BBL</div>
+              <div class="dd-stat-value" style="font-size: 16px;">${p.bbl}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Borough</div>
+              <div class="dd-stat-value" style="font-size: 16px;">${boro}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Block</div>
+              <div class="dd-stat-value" style="font-size: 16px;">${block}</div>
+            </div>
+            <div class="dd-stat">
+              <div class="dd-stat-label">Lot</div>
+              <div class="dd-stat-value" style="font-size: 16px;">${lot}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    // DD Event Listeners
+    document.getElementById('ddBackBtn').addEventListener('click', closeDueDiligencePage);
+    
+    document.getElementById('ddSaveBtn').addEventListener('click', () => {
+      if (!ddState.property) return;
+      
+      const bbl = ddState.property.bbl;
+      const index = state.portfolio.indexOf(bbl);
+      
+      if (index > -1) {
+        state.portfolio.splice(index, 1);
+        document.getElementById('ddSaveBtn').textContent = '☆ Save to Portfolio';
+      } else {
+        state.portfolio.push(bbl);
+        document.getElementById('ddSaveBtn').textContent = '★ Saved';
+      }
+      
+      localStorage.setItem('portfolio', JSON.stringify(state.portfolio));
+    });
+    
+    document.querySelectorAll('.dd-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        renderDDTab(tab.dataset.ddTab);
+      });
+    });
+    
+    // Handle browser back/forward
+    window.addEventListener('popstate', (e) => {
+      if (e.state?.view === 'dd') {
+        openDueDiligencePage(e.state.bbl);
+      } else if (e.state?.view === 'dashboard') {
+        openDashboardPage();
+      } else {
+        closeDueDiligencePage();
+        closeDashboardPage();
+      }
+    });
+    
+    // ============ DASHBOARD PAGE ============
+    
+    async function openDashboardPage() {
+      // Show dashboard page
+      document.getElementById('dashboardPage').classList.add('visible');
+      
+      // Load dashboard content
+      await loadDashboardPage();
+      
+      // Update URL
+      history.pushState({ view: 'dashboard' }, '', '/dashboard');
+    }
+    
+    function closeDashboardPage() {
+      document.getElementById('dashboardPage').classList.remove('visible');
+      
+      // Update URL
+      if (window.location.pathname === '/dashboard') {
+        history.pushState({ view: 'main' }, '', '/');
+      }
+    }
+    
+    async function loadDashboardPage() {
+      const container = document.getElementById('dashboardPageContent');
+      
+      try {
+        // Fetch all dashboard data
+        const [summaryRes, pulseRes, oppsRes] = await Promise.all([
+          fetch('/api/dashboard/summary', {
+            headers: state.accessToken ? { 'Authorization': `Bearer ${state.accessToken}` } : {}
+          }),
+          fetch('/api/dashboard/market-pulse'),
+          fetch('/api/dashboard/opportunities', {
+            headers: state.accessToken ? { 'Authorization': `Bearer ${state.accessToken}` } : {}
+          })
+        ]);
+        
+        const summary = await summaryRes.json();
+        const pulse = await pulseRes.json();
+        const opps = await oppsRes.json();
+        
+        // Render dashboard
+        container.innerHTML = renderDashboard(summary, pulse, opps.opportunities || []);
+        
+      } catch (error) {
+        console.error('Dashboard load error:', error);
+        container.innerHTML = '<div class="error">Failed to load dashboard</div>';
+      }
+    }
+    
+    // Dashboard button event listener
+    document.getElementById('dashboardButton').addEventListener('click', openDashboardPage);
+    document.getElementById('dashboardBackBtn').addEventListener('click', closeDashboardPage);
+
+    // ============ SAVED SEARCHES ============
+    
+    async function loadSavedSearches() {
+      if (!state.user) {
+        document.getElementById('savedSearchesSection').style.display = 'none';
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/searches', {
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+        
+        const data = await response.json();
+        state.savedSearches = data.searches || [];
+        
+        renderSavedSearches();
+        document.getElementById('savedSearchesSection').style.display = 'block';
+        
+      } catch (error) {
+        console.error('Load searches error:', error);
+      }
+    }
+    
+    function renderSavedSearches() {
+      const container = document.getElementById('savedSearchesList');
+      
+      if (state.savedSearches.length === 0) {
+        container.innerHTML = '<p style="font-size: 12px; color: var(--text-light); text-align: center; padding: 8px;">No saved searches yet</p>';
+        return;
+      }
+      
+      container.innerHTML = state.savedSearches.map(search => `
+        <div class="saved-search-item ${state.activeSearchId === search.id ? 'active' : ''}" 
+             onclick="runSavedSearch('${search.id}')">
+          <div class="saved-search-name">${search.name}</div>
+          <div class="saved-search-meta">
+            <span>${new Date(search.created_at).toLocaleDateString()}</span>
+            <div class="saved-search-actions">
+              <button onclick="event.stopPropagation(); deleteSavedSearch('${search.id}')">Delete</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    function openSaveSearchModal() {
+      if (!state.user) {
+        alert('Please sign in to save searches');
+        return;
+      }
+      
+      document.getElementById('searchNameInput').value = '';
+      document.getElementById('saveSearchModal').classList.add('visible');
+      document.getElementById('searchNameInput').focus();
+    }
+    
+    function closeSaveSearchModal() {
+      document.getElementById('saveSearchModal').classList.remove('visible');
+    }
+    
+    async function saveCurrentSearch() {
+      const name = document.getElementById('searchNameInput').value.trim();
+      
+      if (!name) {
+        alert('Please enter a name for this search');
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/searches', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.accessToken}`
+          },
+          body: JSON.stringify({
+            name: name,
+            filters: state.filters
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.search) {
+          state.savedSearches.unshift(data.search);
+          renderSavedSearches();
+          closeSaveSearchModal();
+        }
+        
+      } catch (error) {
+        console.error('Save search error:', error);
+        alert('Failed to save search');
+      }
+    }
+    
+    async function runSavedSearch(searchId) {
+      try {
+        document.getElementById('activeSearchIndicator').style.display = 'flex';
+        document.getElementById('activeSearchName').textContent = 'Loading...';
+        
+        const response = await fetch(`/api/searches/${searchId}/run`, {
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+        
+        const data = await response.json();
+        
+        // Update state
+        state.activeSearchId = searchId;
+        state.filters = data.search.filters;
+        
+        // Update UI
+        document.getElementById('activeSearchName').textContent = `Showing: "${data.search.name}"`;
+        renderSavedSearches();
+        
+        // Update properties
+        state.data.properties = data.properties || [];
+        renderList();
+        renderMap();
+        
+      } catch (error) {
+        console.error('Run search error:', error);
+        alert('Failed to run search');
+      }
+    }
+    
+    function clearActiveSearch() {
+      state.activeSearchId = null;
+      document.getElementById('activeSearchIndicator').style.display = 'none';
+      renderSavedSearches();
+      
+      // Reset filters and reload
+      state.filters = {
+        bldgclass: 'all',
+        minFarGap: null,
+        minDistress: null,
+        sort: 'far_gap',
+        order: 'desc'
+      };
+      fetchData();
+    }
+    
+    async function deleteSavedSearch(searchId) {
+      if (!confirm('Delete this saved search?')) return;
+      
+      try {
+        await fetch(`/api/searches/${searchId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+        
+        state.savedSearches = state.savedSearches.filter(s => s.id !== searchId);
+        
+        if (state.activeSearchId === searchId) {
+          clearActiveSearch();
+        } else {
+          renderSavedSearches();
+        }
+        
+      } catch (error) {
+        console.error('Delete search error:', error);
+        alert('Failed to delete search');
+      }
+    }
+    
+    // Saved searches event listeners
+    document.getElementById('saveCurrentSearchBtn').addEventListener('click', openSaveSearchModal);
+    document.getElementById('cancelSaveSearch').addEventListener('click', closeSaveSearchModal);
+    document.getElementById('confirmSaveSearch').addEventListener('click', saveCurrentSearch);
+    document.getElementById('clearActiveSearch').addEventListener('click', clearActiveSearch);
+    
+    document.getElementById('saveSearchModal').addEventListener('click', (e) => {
+      if (e.target.id === 'saveSearchModal') {
+        closeSaveSearchModal();
+      }
+    });
+
+    // ============ EXPORT & REPORTING ============
+    
+    function escapeCSV(value) {
+      if (value == null) return '';
+      const str = String(value);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    }
+    
+    function downloadFile(content, filename, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    
+    function exportPropertiesToCSV() {
+      const properties = state.data.properties || [];
+      
+      if (properties.length === 0) {
+        alert('No properties to export');
+        return;
+      }
+      
+      // Define columns
+      const headers = [
+        'BBL', 'Address', 'Building Class', 'Owner', 'Lot SF', 'Building SF',
+        'Floors', 'Year Built', 'Zoning', 'Built FAR', 'Max FAR', 'FAR Gap',
+        'Unused SF', 'Assessed Value', 'Opportunity Score', 'Distress Score', 'Open Violations'
+      ];
+      
+      // Map properties to rows
+      const rows = properties.map(p => [
+        p.bbl,
+        p.address,
+        p.bldgclass,
+        p.ownername,
+        p.lotarea,
+        p.bldgarea,
+        p.numfloors,
+        p.yearbuilt,
+        p.zonedist1,
+        p.builtfar?.toFixed(2) || '',
+        p.residfar || p.commfar || p.facilfar || '',
+        p.far_gap?.toFixed(2) || '',
+        p.unused_sf || '',
+        p.assesstot,
+        p.opportunity_score || '',
+        p.distress_score || 0,
+        p.open_violations || 0
+      ]);
+      
+      // Build CSV
+      const csv = [
+        headers.map(escapeCSV).join(','),
+        ...rows.map(row => row.map(escapeCSV).join(','))
+      ].join('\n');
+      
+      // Download
+      const filename = `nyc-cre-properties-${new Date().toISOString().split('T')[0]}.csv`;
+      downloadFile(csv, filename, 'text/csv');
+    }
+    
+    async function exportPropertyPDF(bbl) {
+      try {
+        // Get property details
+        const property = state.data.properties.find(p => p.bbl === bbl);
+        if (!property) {
+          alert('Property not found');
+          return;
+        }
+        
+        // Fetch full details including comps
+        const [detailsRes, compsRes] = await Promise.all([
+          fetch(`/api/properties/${bbl}`),
+          fetch(`/api/properties/${bbl}/comps`)
+        ]);
+        
+        const details = await detailsRes.json();
+        const compsData = await compsRes.json();
+        
+        // Initialize jsPDF
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        let yPos = 20;
+        
+        // Title
+        doc.setFontSize(18);
+        doc.setFont(undefined, 'bold');
+        doc.text(property.address || 'Property Report', 20, yPos);
+        yPos += 10;
+        
+        // Subtitle
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(100);
+        doc.text(`BBL: ${property.bbl} | Generated: ${new Date().toLocaleDateString()}`, 20, yPos);
+        yPos += 15;
+        doc.setTextColor(0);
+        
+        // Key Metrics Section
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'bold');
+        doc.text('Key Metrics', 20, yPos);
+        yPos += 8;
+        
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        
+        const metrics = [
+          ['Building Class:', property.bldgclass || 'N/A'],
+          ['Owner:', property.ownername || 'N/A'],
+          ['Building SF:', formatNumber(property.bldgarea)],
+          ['Lot SF:', formatNumber(property.lotarea)],
+          ['Floors:', property.numfloors || 'N/A'],
+          ['Year Built:', property.yearbuilt || 'N/A'],
+          ['Zoning:', property.zonedist1 || 'N/A'],
+          ['Assessed Value:', '$' + formatNumber(property.assesstot)]
+        ];
+        
+        metrics.forEach(([label, value]) => {
+          doc.text(label, 20, yPos);
+          doc.text(String(value), 80, yPos);
+          yPos += 6;
+        });
+        
+        yPos += 10;
+        
+        // Investment Analysis Section
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'bold');
+        doc.text('Investment Analysis', 20, yPos);
+        yPos += 8;
+        
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        
+        const analysis = [
+          ['Opportunity Score:', property.opportunity_score?.toFixed(0) || 'N/A'],
+          ['FAR Gap:', property.far_gap?.toFixed(2) || 'N/A'],
+          ['Unused SF:', formatNumber(property.unused_sf)],
+          ['Built FAR:', property.builtfar?.toFixed(2) || 'N/A'],
+          ['Max FAR:', property.residfar || property.commfar || property.facilfar || 'N/A'],
+          ['Distress Score:', property.distress_score || 0],
+          ['Open Violations:', property.open_violations || 0]
+        ];
+        
+        analysis.forEach(([label, value]) => {
+          doc.text(label, 20, yPos);
+          doc.text(String(value), 80, yPos);
+          yPos += 6;
+        });
+        
+        // Sales History Table
+        if (details.sales && details.sales.length > 0) {
+          yPos += 10;
+          doc.setFontSize(14);
+          doc.setFont(undefined, 'bold');
+          doc.text('Recent Sales', 20, yPos);
+          yPos += 5;
+          
+          doc.autoTable({
+            startY: yPos,
+            head: [['Date', 'Price', 'Price/SF']],
+            body: details.sales.slice(0, 5).map(s => [
+              new Date(s.sale_date).toLocaleDateString(),
+              '$' + formatNumber(s.sale_price),
+              s.sale_price && property.bldgarea ? 
+                '$' + Math.round(s.sale_price / property.bldgarea) : 'N/A'
+            ]),
+            theme: 'grid',
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [59, 130, 246] }
+          });
+          
+          yPos = doc.lastAutoTable.finalY + 10;
+        }
+        
+        // Comparable Sales
+        if (compsData.comps && compsData.comps.length > 0) {
+          if (yPos > 250) {
+            doc.addPage();
+            yPos = 20;
+          }
+          
+          doc.setFontSize(14);
+          doc.setFont(undefined, 'bold');
+          doc.text('Comparable Sales', 20, yPos);
+          yPos += 5;
+          
+          doc.autoTable({
+            startY: yPos,
+            head: [['Address', 'Distance', 'Price/SF', 'Sale Date']],
+            body: compsData.comps.slice(0, 5).map(c => [
+              c.address,
+              c.distance?.toFixed(2) + ' mi',
+              c.pricePerSF ? '$' + Math.round(c.pricePerSF) : 'N/A',
+              c.lastSaleDate ? new Date(c.lastSaleDate).toLocaleDateString() : 'N/A'
+            ]),
+            theme: 'grid',
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [59, 130, 246] }
+          });
+          
+          yPos = doc.lastAutoTable.finalY + 10;
+        }
+        
+        // Violations Table
+        if (details.violations && details.violations.length > 0) {
+          if (yPos > 250) {
+            doc.addPage();
+            yPos = 20;
+          }
+          
+          doc.setFontSize(14);
+          doc.setFont(undefined, 'bold');
+          doc.text('Open Violations', 20, yPos);
+          yPos += 5;
+          
+          doc.autoTable({
+            startY: yPos,
+            head: [['Type', 'Date', 'Status']],
+            body: details.violations.filter(v => v.status === 'Open').slice(0, 10).map(v => [
+              v.violation_type,
+              new Date(v.issue_date).toLocaleDateString(),
+              v.status
+            ]),
+            theme: 'grid',
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [239, 68, 68] }
+          });
+        }
+        
+        // Footer
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+          doc.setPage(i);
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          doc.text(
+            `NYC CRE Explorer | Page ${i} of ${pageCount}`,
+            doc.internal.pageSize.width / 2,
+            doc.internal.pageSize.height - 10,
+            { align: 'center' }
+          );
+        }
+        
+        // Save PDF
+        const filename = `${property.address?.replace(/\s+/g, '_') || property.bbl}_report.pdf`;
+        doc.save(filename);
+        
+      } catch (error) {
+        console.error('PDF generation error:', error);
+        alert('Failed to generate PDF report');
+      }
+    }
+    
+    // Export event listeners
+    document.getElementById('exportCSVBtn').addEventListener('click', exportPropertiesToCSV);
+    document.getElementById('exportPDFBtn').addEventListener('click', () => {
+      if (state.selectedProperty) {
+        exportPropertyPDF(state.selectedProperty);
+        logActivity(state.selectedProperty, 'export', { type: 'pdf' });
+      }
+    });
+
+    // ============ NOTES & ACTIVITY ============
+    
+    async function logActivity(bbl, action, metadata = {}) {
+      if (!state.user) return;
+      
+      try {
+        await fetch('/api/activity', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.accessToken}`
+          },
+          body: JSON.stringify({ bbl, action, metadata })
+        });
+      } catch (error) {
+        console.error('Log activity error:', error);
+        // Don't block UI on activity logging failure
+      }
+    }
+    
+    async function loadPropertyNote(bbl) {
+      if (!state.user) {
+        document.getElementById('notesSection').style.display = 'none';
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/notes/${bbl}`, {
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+        
+        const data = await response.json();
+        const note = data.note;
+        
+        document.getElementById('notesSection').style.display = 'block';
+        
+        if (note && note.content) {
+          document.getElementById('notesDisplay').innerHTML = `
+            <div class="notes-content">${note.content}</div>
+            <div class="notes-meta">Updated: ${new Date(note.updated_at).toLocaleDateString()}</div>
+          `;
+        } else {
+          document.getElementById('notesDisplay').innerHTML = `
+            <div class="notes-empty">No notes yet. Click Edit to add notes.</div>
+          `;
+        }
+        
+        // Store current note
+        state.currentNote = note;
+        
+      } catch (error) {
+        console.error('Load note error:', error);
+      }
+    }
+    
+    async function loadPropertyActivity(bbl) {
+      if (!state.user) {
+        document.getElementById('activitySection').style.display = 'none';
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/properties/${bbl}/activity`, {
+          headers: {
+            'Authorization': `Bearer ${state.accessToken}`
+          }
+        });
+        
+        const data = await response.json();
+        const { summary, activities } = data;
+        
+        document.getElementById('activitySection').style.display = 'block';
+        
+        if (activities.length === 0) {
+          document.getElementById('activityDisplay').innerHTML = `
+            <div class="notes-empty">No activity yet</div>
+          `;
+          return;
+        }
+        
+        const activityHTML = `
+          <div class="activity-item">
+            <span class="activity-action">Viewed ${summary.viewCount} time${summary.viewCount !== 1 ? 's' : ''}</span>
+            ${summary.lastViewed ? `<div class="activity-time">Last: ${new Date(summary.lastViewed).toLocaleDateString()}</div>` : ''}
+          </div>
+          ${summary.inPortfolio ? `<div class="activity-item"><span class="activity-action">✓ In Portfolio</span></div>` : ''}
+          ${summary.hasNotes ? `<div class="activity-item"><span class="activity-action">📝 Has Notes</span></div>` : ''}
+        `;
+        
+        document.getElementById('activityDisplay').innerHTML = activityHTML;
+        
+      } catch (error) {
+        console.error('Load activity error:', error);
+      }
+    }
+    
+    function openNoteEditor() {
+      const note = state.currentNote;
+      document.getElementById('noteTextarea').value = note?.content || '';
+      document.getElementById('notesDisplay').style.display = 'none';
+      document.getElementById('notesEdit').style.display = 'block';
+      document.getElementById('editNoteBtn').style.display = 'none';
+    }
+    
+    function closeNoteEditor() {
+      document.getElementById('notesDisplay').style.display = 'block';
+      document.getElementById('notesEdit').style.display = 'none';
+      document.getElementById('editNoteBtn').style.display = 'block';
+    }
+    
+    async function saveNote() {
+      const bbl = state.selectedProperty;
+      const content = document.getElementById('noteTextarea').value.trim();
+      
+      if (!content) {
+        alert('Please enter some notes');
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/notes/${bbl}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.accessToken}`
+          },
+          body: JSON.stringify({ content, tags: [] })
+        });
+        
+        const data = await response.json();
+        state.currentNote = data.note;
+        
+        // Reload note display
+        await loadPropertyNote(bbl);
+        await loadPropertyActivity(bbl);
+        
+        closeNoteEditor();
+        
+      } catch (error) {
+        console.error('Save note error:', error);
+        alert('Failed to save note');
+      }
+    }
+    
+    // Notes event listeners
+    document.getElementById('editNoteBtn').addEventListener('click', openNoteEditor);
+    document.getElementById('saveNoteBtn').addEventListener('click', saveNote);
+    document.getElementById('cancelNoteBtn').addEventListener('click', closeNoteEditor);
+
+    // ============ DASHBOARD ============
+    
+    function formatNumber(num) {
+      if (!num) return '0';
+      return num.toLocaleString();
+    }
+    
+    function debounce(fn, delay) {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    // ============ START APP ============
+    init();
+  </script>
+</body>
+</html>
