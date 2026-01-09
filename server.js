@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 // Validate required environment variables
 console.log('Starting server...');
-console.log('PORT:', process.env.PORT || '3000 (default)');
+console.log('PORT from Railway:', process.env.PORT || 'NOT SET - will use 3000');
 console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? '✓ Set' : '✗ Missing');
 console.log('SUPABASE_KEY:', process.env.SUPABASE_KEY ? '✓ Set' : '✗ Missing');
 console.log('MAPBOX_ACCESS_TOKEN:', process.env.MAPBOX_ACCESS_TOKEN ? '✓ Set' : '✗ Missing (optional)');
@@ -3225,6 +3225,10 @@ server.on('error', (error) => {
 server.on('listening', () => {
   const addr = server.address();
   console.log(`✓ Server listening on ${addr.address}:${addr.port}`);
+  console.log(`✓ Railway should route traffic to port ${addr.port}`);
+  if (addr.port !== parseInt(process.env.PORT || '3000')) {
+    console.warn(`⚠ WARNING: Server listening on ${addr.port} but PORT env var is ${process.env.PORT || 'not set'}`);
+  }
 });
 
 // Handle uncaught errors
