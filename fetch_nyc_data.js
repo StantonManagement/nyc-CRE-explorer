@@ -121,63 +121,82 @@ async function fetchSales(targetBlocks = []) {
 async function fetchHPDViolations(targetBlocks = []) {
   console.log('📥 Fetching HPD violations...');
   
-  // Open violations only
-  let whereClause = "violationstatus = 'Open'";
-  
-  if (targetBlocks.length > 0) {
-    console.log(`   Filtering for ${targetBlocks.length} blocks`);
-    const blockList = targetBlocks.map(b => `'${b}'`).join(',');
-    whereClause += ` and block in (${blockList})`;
-  }
+  if (targetBlocks.length === 0) return [];
 
-  const query = new URLSearchParams({
-    $where: whereClause,
-    $limit: 10000,
-    $order: 'approveddate DESC'
-  });
-  
-  const url = `${CONFIG.apis.hpd_violations}?${query}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) {
-    console.warn(`   ⚠️ HPD Fetch failed: ${response.status}`);
-    return [];
+  const CHUNK_SIZE = 50;
+  let allData = [];
+
+  for (let i = 0; i < targetBlocks.length; i += CHUNK_SIZE) {
+    const chunk = targetBlocks.slice(i, i + CHUNK_SIZE);
+    
+    let whereClause = "violationstatus = 'Open'";
+    const blockList = chunk.map(b => `'${b}'`).join(',');
+    whereClause += ` and block in (${blockList})`;
+
+    const query = new URLSearchParams({
+      $where: whereClause,
+      $limit: 50000, // Higher limit per batch
+      $order: 'approveddate DESC'
+    });
+    
+    const url = `${CONFIG.apis.hpd_violations}?${query}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      console.warn(`   ⚠️ HPD Batch ${i} failed: ${response.status}`);
+      continue;
+    }
+    
+    const data = await response.json();
+    allData = allData.concat(data);
+    process.stdout.write(`   Fetched ${allData.length} HPD records...\r`);
   }
   
-  const data = await response.json();
-  console.log(`   Records: ${data.length}`);
-  return data;
+  console.log(`\n   Total HPD Records: ${allData.length}`);
+  return allData;
 }
 
 async function fetchDOBViolations(targetBlocks = []) {
   console.log('📥 Fetching DOB violations...');
   
-  // Active violations
-  let whereClause = "violation_active = 'Y'";
-  
-  if (targetBlocks.length > 0) {
-    // DOB uses number for block? Check API docs. Assuming string for safety in SoQL
-    const blockList = targetBlocks.map(b => `'${b}'`).join(',');
-    whereClause += ` and block in (${blockList})`;
-  }
+  if (targetBlocks.length === 0) return [];
 
-  const query = new URLSearchParams({
-    $where: whereClause,
-    $limit: 10000,
-    $order: 'issue_date DESC'
-  });
-  
-  const url = `${CONFIG.apis.dob_violations}?${query}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) {
-    console.warn(`   ⚠️ DOB Fetch failed: ${response.status}`);
-    return [];
+  const CHUNK_SIZE = 50;
+  let allData = [];
+
+  for (let i = 0; i < targetBlocks.length; i += CHUNK_SIZE) {
+    const chunk = targetBlocks.slice(i, i + CHUNK_SIZE);
+    
+    // violation_active doesn't exist in this dataset.
+    // DEBUG: Remove status filter to check if block matching works
+    let whereClause = "disposition_date IS NULL";
+    // Restore quotes for DOB block numbers (Dataset uses Text for block)
+    // AND PAD THEM to 5 digits (e.g. '00847' instead of '847')
+    const blockList = chunk.map(b => `'${String(b).padStart(5, '0')}'`).join(',');
+    whereClause += ` and block in (${blockList})`;
+
+    const query = new URLSearchParams({
+      $where: whereClause,
+      $limit: 50000,
+      $order: 'issue_date DESC'
+    });
+    
+    const url = `${CONFIG.apis.dob_violations}?${query}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(`   ⚠️ DOB Batch ${i} failed: ${response.status} - ${errText.substring(0, 200)}`);
+      continue;
+    }
+    
+    const data = await response.json();
+    allData = allData.concat(data);
+    process.stdout.write(`   Fetched ${allData.length} DOB records...\r`);
   }
   
-  const data = await response.json();
-  console.log(`   Records: ${data.length}`);
-  return data;
+  console.log(`\n   Total DOB Records: ${allData.length}`);
+  return allData;
 }
 
 // =============================================
@@ -213,7 +232,14 @@ function transformProperty(raw) {
     residfar: parseFloat(raw.residfar) || null,
     assesstot: parseInt(raw.assesstot) || null,
     lat: parseFloat(raw.latitude) || null,
-    lng: parseFloat(raw.longitude) || null
+    lng: parseFloat(raw.longitude) || null,
+    last_sale_date: raw.lastsaledate ? raw.lastsaledate.split('T')[0] : null,
+    last_sale_price: parseInt(raw.lastsaleprice) || null,
+    year_altered: parseInt(raw.yearaltered1) || null,
+    landmark: raw.landmark || null,
+    lot_front: parseFloat(raw.lotfront) || null,
+    lot_depth: parseFloat(raw.lotdepth) || null,
+    extension: raw.extension || null
     // Note: far_gap and unused_sf are computed by PostgreSQL
   };
 }
@@ -243,7 +269,11 @@ function transformSale(raw) {
 }
 
 function transformHPDViolation(raw) {
-  const bbl = `${raw.boroid || raw.borough}${String(raw.block).padStart(5, '0')}${String(raw.lot).padStart(4, '0')}`;
+  // Parse int to handle "00123" strings, then pad strictly
+  const block = String(parseInt(raw.block)).padStart(5, '0');
+  const lot = String(parseInt(raw.lot)).padStart(4, '0');
+  const bbl = `${raw.boroid || raw.borough}${block}${lot}`;
+  
   return {
     bbl,
     violation_type: 'HPD',
@@ -255,14 +285,18 @@ function transformHPDViolation(raw) {
 }
 
 function transformDOBViolation(raw) {
-  const bbl = `${raw.borocode || raw.borough}${String(raw.block).padStart(5, '0')}${String(raw.lot).padStart(4, '0')}`;
+  // Parse int to handle "00123" strings, then pad strictly
+  const block = String(parseInt(raw.block)).padStart(5, '0');
+  const lot = String(parseInt(raw.lot)).padStart(4, '0');
+  const bbl = `${raw.borocode || raw.boro || raw.borough}${block}${lot}`;
+
   return {
     bbl,
     violation_type: 'DOB',
     violation_id: raw.isn_dob_bis_viol,
     description: raw.description,
-    status: raw.violation_active === 'Y' ? 'Open' : 'Closed',
-    issue_date: raw.issue_date ? String(raw.issue_date).substring(0, 4) + '-' + String(raw.issue_date).substring(4, 6) + '-' + String(raw.issue_date).substring(6, 8) : null
+    status: raw.disposition_date ? 'Closed' : 'Open',
+    issue_date: raw.issue_date ? String(raw.issue_date).substring(0, 10) : null
   };
 }
 

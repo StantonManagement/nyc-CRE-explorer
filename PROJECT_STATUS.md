@@ -21,6 +21,24 @@
 11. **UI/UX Refinements**
     - **Navigation:** Fixed "Back to Property" button in Owner Panel using robust view template restoration.
     - **Stability:** Verified project dependencies (Vanilla JS + Express) for clean maintenance.
+12. **Saved Searches (PRP 3.1)**
+    - Implemented "Save Search" modal and functionality.
+    - Added "Saved Searches" list to sidebar.
+    - Wired up search restoration logic.
+    - Note: Alerts are placeholder for now (Phase 6).
+13. **Export & Reporting (PRP 3.2)**
+    - **CSV Export:** Added "Export to CSV" button to sidebar to download current filtered property list.
+    - **PDF Reports:** Added "PDF Report" button to property detail panel for professional tear-sheets.
+    - **Tech:** Integrated `jspdf` and `jspdf-autotable` for client-side generation.
+14. **Notes & Activity Log (PRP 3.3)**
+    - **Notes:** Added private notes and tagging system to property detail panel.
+    - **Activity Log:** Implemented backend logging for key actions (View, Note, Portfolio, Export).
+    - **Dashboard:** Updated "Recent Activity" feed to show real user history.
+    - **Schema:** Added `property_notes` and `activity_log` tables.
+15. **Distressed Owners Browser (PRP 4.1)**
+    - **New View:** Added "Distressed Owners" browser with scoring and filtering.
+    - **Algorithm:** Implemented `distressScore` calculation based on violations, portfolio contamination, and chronic issues.
+    - **Integration:** Connected to Owner Portfolio view for deep dive.
 
 1.  **Fetch Full Data (PRP 0.5)**
     - Expanded dataset to 3,500+ properties in Midtown South.
@@ -132,6 +150,7 @@ nyc-cre-app/
 | 3.2 | Owner portfolio size indicator | 3.1 | 30 min |
 | 3.3 | Entity type detection (LLC vs individual) | 3.1 | 30 min |
 | 3.4 | Owner detail panel | 3.1, 3.2, 3.3 | 45 min |
+| 4.1 | ✅ Distressed Owners Browser | Phase 2 | 45 min |
 **Milestone:** Full ownership intelligence layer
 
 ### Phase 4: Comp Analysis
@@ -147,8 +166,8 @@ nyc-cre-app/
 |------|------|--------------|-----------|
 | 5.1 | Supabase auth (magic link) | Phase 0 | 45 min |
 | 5.2 | Persistent portfolios (per user) | 5.1 | 45 min |
-| 5.3 | Saved searches | 5.1 | 30 min |
-| 5.4 | Notes on properties | 5.1 | 30 min |
+| 5.3 | ✅ Saved searches | 5.1 | 30 min |
+| 5.4 | ✅ Notes on properties | 5.1 | 30 min |
 **Milestone:** Multi-user with persistent data
 
 ### Phase 6: Alerts (Future)

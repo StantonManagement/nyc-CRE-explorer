@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NYC CRE Explorer - Rebuild</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif; 
+      background: #1a1a1a; 
+      color: #fff; 
+      padding: 20px;
+      line-height: 1.5;
+    }
+    h1 { margin-bottom: 20px; }
+    .stats { 
+      display: flex; 
+      gap: 32px; 
+      font-size: 18px; 
+      margin-bottom: 24px;
+      padding: 16px;
+      background: #2a2a2a;
+      border-radius: 8px;
+    }
+    .stat-value { font-size: 32px; font-weight: bold; color: #3b82f6; }
+    .stat-label { font-size: 12px; color: #888; text-transform: uppercase; }
+    .debug { 
+      background: #0a0a0a; 
+      padding: 16px; 
+      font-family: monospace; 
+      font-size: 12px;
+      white-space: pre-wrap;
+      border-radius: 8px;
+      max-height: 400px;
+      overflow: auto;
+    }
+    .error { color: #ef4444; }
+    .success { color: #22c55e; }
+  </style>
+</head>
+<body>
+  <h1>NYC CRE Explorer - Phase 1: Data Verification</h1>
+  
+  <div class="stats">
+    <div>
+      <div class="stat-value" id="propCount">...</div>
+      <div class="stat-label">Properties</div>
+    </div>
+    <div>
+      <div class="stat-value" id="salesCount">...</div>
+      <div class="stat-label">Sales (30d)</div>
+    </div>
+    <div>
+      <div class="stat-value" id="avgPsf">...</div>
+      <div class="stat-label">Avg $/SF</div>
+    </div>
+  </div>
+  
+  <h3>API Response Debug:</h3>
+  <div class="debug" id="debug">Loading...</div>
+
+  <script>
+    async function init() {
+      const debug = document.getElementById('debug');
+      
+      try {
+        // Fetch with high limit to get true count
+        const url = '/api/data?limit=10000';
+        debug.textContent = 'Fetching: ' + url + '\n\n';
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error('HTTP ' + response.status);
+        }
+        
+        const data = await response.json();
+        
+        // Log to console for inspection
+        console.log('Full API response:', data);
+        
+        // Extract numbers
+        const propCount = data.properties?.length || 0;
+        const salesCount = data.sales?.length || 0;
+        const avgPsf = data.stats?.avgPricePerSF;
+        
+        // Update display
+        document.getElementById('propCount').textContent = propCount.toLocaleString();
+        document.getElementById('salesCount').textContent = salesCount.toLocaleString();
+        document.getElementById('avgPsf').textContent = avgPsf && avgPsf > 0 
+          ? '$' + Math.round(avgPsf).toLocaleString() 
+          : 'N/A';
+        
+        // Debug output
+        debug.innerHTML = '<span class="success">✓ API responded successfully</span>\n\n';
+        debug.innerHTML += 'Properties returned: ' + propCount + '\n';
+        debug.innerHTML += 'Sales returned: ' + salesCount + '\n';
+        debug.innerHTML += 'Stats from server:\n';
+        debug.innerHTML += JSON.stringify(data.stats, null, 2) + '\n\n';
+        
+        // Verification checklist
+        debug.innerHTML += '─────────────────────────────────\n';
+        debug.innerHTML += 'VERIFICATION CHECKLIST:\n';
+        debug.innerHTML += '─────────────────────────────────\n';
+        debug.innerHTML += (propCount > 1000 ? '✓' : '✗') + ' Properties > 1000: ' + propCount + '\n';
+        debug.innerHTML += (data.stats !== undefined ? '✓' : '✗') + ' Stats object exists\n';
+        debug.innerHTML += (avgPsf === null || avgPsf === 0 || avgPsf === undefined ? '✓' : '?') + ' Avg PSF is null/0 (expected - no recent sales)\n';
+        
+        // Sample properties
+        debug.innerHTML += '\n─────────────────────────────────\n';
+        debug.innerHTML += 'SAMPLE PROPERTIES (first 3):\n';
+        debug.innerHTML += '─────────────────────────────────\n';
+        data.properties?.slice(0, 3).forEach((p, i) => {
+          debug.innerHTML += `${i + 1}. ${p.address || 'No address'}\n`;
+          debug.innerHTML += `   Class: ${p.bldgclass} | FAR Gap: ${p.far_gap?.toFixed(1) || 'N/A'}\n`;
+          debug.innerHTML += `   Owner: ${p.ownername || 'Unknown'}\n\n`;
+        });
+        
+      } catch (err) {
+        console.error('Fetch failed:', err);
+        debug.innerHTML = '<span class="error">✗ ERROR: ' + err.message + '</span>\n\n';
+        debug.innerHTML += 'Check:\n';
+        debug.innerHTML += '1. Is server running? (node server.js)\n';
+        debug.innerHTML += '2. Is database connected?\n';
+        debug.innerHTML += '3. Check server console for errors\n';
+      }
+    }
+    
+    init();
+  </script>
+</body>
+</html>

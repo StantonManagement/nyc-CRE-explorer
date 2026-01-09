@@ -19,6 +19,9 @@
   ],
   "author": "Land Resource Partners",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
     "dotenv": "^17.2.3",

@@ -8,6 +8,7 @@ import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
 
 // ES module dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -39,33 +40,14 @@ app.use('/api', (req, res, next) => {
 });
 
 // =============================================
-// SIMPLE AUTH (Hardcoded Users)
+// AUTH MIDDLEWARE
 // =============================================
 
-// Hardcoded users
-const USERS = {
-  'admin': {
-    id: 'admin-001',
-    email: 'admin@nyccre.com',
-    password: 'admin123',
-    role: 'admin'
-  },
-  'client': {
-    id: 'client-001',
-    email: 'client@nyccre.com',
-    password: 'client123',
-    role: 'client'
-  }
-};
-
-// Active sessions (in-memory)
-const sessions = new Map();
-
 /**
- * Extract and verify simple auth token from request
+ * Extract and verify Supabase auth token from request
  * Adds req.user if valid, null otherwise
  */
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   req.user = null;
   
   const authHeader = req.headers.authorization;
@@ -74,10 +56,17 @@ function authMiddleware(req, res, next) {
   }
   
   const token = authHeader.substring(7);
-  const user = sessions.get(token);
   
-  if (user) {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return next();
+    }
+    
     req.user = user;
+  } catch (err) {
+    console.error('Auth middleware error:', err);
   }
   
   next();
@@ -162,11 +151,27 @@ function matchesBldgClass(bldgclass, filterValue) {
 
 // Helper: Build Supabase query for building class
 function applyBldgClassFilter(query, filterValue) {
-  if (!filterValue || filterValue === 'all') return query;
+  console.log('[applyBldgClassFilter] Input:', filterValue);
+  if (!filterValue || filterValue === 'all') {
+    console.log('[applyBldgClassFilter] Returning all (no filter)');
+    return query;
+  }
   const config = FILTER_CONFIG.bldgclass[filterValue];
-  if (!config) return query;
+  console.log('[applyBldgClassFilter] Config found:', !!config, config);
+  if (!config) {
+    console.log('[applyBldgClassFilter] No config, returning unfiltered');
+    return query;
+  }
   
+  // For single prefix, use ilike directly
+  if (config.prefixes.length === 1) {
+    console.log('[applyBldgClassFilter] Single prefix, using ilike:', config.prefixes[0]);
+    return query.ilike('bldgclass', `${config.prefixes[0]}%`);
+  }
+  
+  // For multiple prefixes, use or() with proper format
   const conditions = config.prefixes.map(p => `bldgclass.ilike.${p}%`).join(',');
+  console.log('[applyBldgClassFilter] Multiple prefixes, using or():', conditions);
   return query.or(conditions);
 }
 
@@ -180,46 +185,79 @@ function applyBldgClassFilter(query, filterValue) {
 
 /**
  * POST /api/auth/login
- * Simple username/password login
+ * Send magic link email
  */
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
+  console.log('[Login] Request received. Body:', req.body);
   try {
-    const { username, password } = req.body;
+    const { email } = req.body;
     
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
+    if (!email) {
+      console.log('[Login] Missing email');
+      return res.status(400).json({ error: 'Email required' });
     }
     
-    const user = USERS[username];
-    
-    if (!user || user.password !== password) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    
-    // Generate simple token (in production, use JWT)
-    const token = `${username}-${Date.now()}-${Math.random().toString(36)}`;
-    
-    // Store session
-    sessions.set(token, {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      username: username
+    console.log('[Login] Calling signInWithOtp for:', email);
+    const { data, error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${req.protocol}://${req.get('host')}/auth/callback`
+      }
     });
+    
+    if (error) {
+      console.error('[Login] Supabase Error:', error);
+      // Pass through the status code if available
+      const status = error.status || 500;
+      throw error;
+    }
+    
+    console.log('[Login] Success');
+    res.json({ 
+      success: true, 
+      message: 'Check your email for the login link' 
+    });
+    
+  } catch (error) {
+    console.error('[Login] Exception:', error);
+    res.status(error.status || 500).json({ error: 'SERVER SAYS: ' + error.message });
+  }
+});
+
+/**
+ * POST /api/auth/verify
+ * Verify OTP token from magic link
+ */
+app.post('/api/auth/verify', async (req, res) => {
+  try {
+    const { token_hash, type } = req.body;
+    
+    if (!token_hash) {
+      return res.status(400).json({ error: 'Token required' });
+    }
+    
+    const { data, error } = await supabase.auth.verifyOtp({
+      token_hash,
+      type: type || 'magiclink'
+    });
+    
+    if (error) throw error;
     
     res.json({
       success: true,
       user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        username: username
+        id: data.user.id,
+        email: data.user.email
       },
-      token: token
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at
+      }
     });
     
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Verify error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -244,15 +282,863 @@ app.get('/api/auth/me', (req, res) => {
 
 /**
  * POST /api/auth/logout
- * Sign out and clear session
+ * Sign out (client should also clear local tokens)
  */
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
+  // Server-side sign out if we have a token
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    sessions.delete(token);
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      // Ignore errors, client will clear tokens anyway
+    }
   }
+  
   res.json({ success: true });
+});
+
+/**
+ * POST /api/auth/refresh
+ * Refresh access token
+ */
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    
+    if (!refresh_token) {
+      return res.status(400).json({ error: 'Refresh token required' });
+    }
+    
+    const { data, error } = await supabase.auth.refreshSession({
+      refresh_token
+    });
+    
+    if (error) throw error;
+    
+    res.json({
+      success: true,
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at
+      }
+    });
+    
+  } catch (error) {
+    console.error('Refresh error:', error);
+    res.status(401).json({ error: 'Session expired, please login again' });
+  }
+});
+
+// =============================================
+// PORTFOLIO ROUTES (Authenticated)
+// =============================================
+
+/**
+ * GET /api/portfolios
+ * List user's portfolios
+ */
+app.get('/api/portfolios', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('portfolios')
+      .select(`
+        id,
+        name,
+        description,
+        created_at,
+        updated_at,
+        portfolio_properties (
+          bbl,
+          notes,
+          added_at
+        )
+      `)
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Add property count to each portfolio
+    const portfolios = data.map(p => ({
+      ...p,
+      propertyCount: p.portfolio_properties?.length || 0
+    }));
+    
+    res.json({ portfolios });
+    
+  } catch (error) {
+    console.error('List portfolios error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/portfolios
+ * Create new portfolio
+ */
+app.post('/api/portfolios', requireAuth, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    
+    const { data, error } = await supabase
+      .from('portfolios')
+      .insert({
+        user_id: req.user.id,
+        name: name || 'My Portfolio',
+        description: description || null
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ portfolio: data });
+    
+  } catch (error) {
+    console.error('Create portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/portfolios/:id
+ * Get single portfolio with full property details
+ */
+app.get('/api/portfolios/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get portfolio
+    const { data: portfolio, error: portfolioError } = await supabase
+      .from('portfolios')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .single();
+    
+    if (portfolioError) {
+      if (portfolioError.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Portfolio not found' });
+      }
+      throw portfolioError;
+    }
+    
+    // Get portfolio properties with details
+    const { data: portfolioProps } = await supabase
+      .from('portfolio_properties')
+      .select('bbl, notes, added_at')
+      .eq('portfolio_id', id);
+    
+    if (!portfolioProps || portfolioProps.length === 0) {
+      return res.json({
+        ...portfolio,
+        properties: []
+      });
+    }
+    
+    // Get full property details
+    const bbls = portfolioProps.map(pp => pp.bbl);
+    const { data: properties } = await supabase
+      .from('properties')
+      .select('*')
+      .in('bbl', bbls);
+    
+    // Merge portfolio data with property details
+    const propertiesWithNotes = (properties || []).map(prop => {
+      const pp = portfolioProps.find(p => p.bbl === prop.bbl);
+      return {
+        ...prop,
+        portfolioNotes: pp?.notes || null,
+        addedAt: pp?.added_at || null
+      };
+    });
+    
+    res.json({
+      ...portfolio,
+      properties: propertiesWithNotes
+    });
+    
+  } catch (error) {
+    console.error('Get portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/portfolios/:id
+ * Update portfolio name/description
+ */
+app.put('/api/portfolios/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    
+    const { data, error } = await supabase
+      .from('portfolios')
+      .update({ name, description })
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ portfolio: data });
+    
+  } catch (error) {
+    console.error('Update portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/portfolios/:id
+ * Delete portfolio
+ */
+app.delete('/api/portfolios/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { error } = await supabase
+      .from('portfolios')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id);
+    
+    if (error) throw error;
+    
+    res.json({ success: true });
+    
+  } catch (error) {
+    console.error('Delete portfolio error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/portfolios/:id/properties
+ * Add property to portfolio
+ */
+app.post('/api/portfolios/:id/properties', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { bbl, notes } = req.body;
+    
+    if (!bbl) {
+      return res.status(400).json({ error: 'BBL required' });
+    }
+    
+    // Verify portfolio belongs to user
+    const { data: portfolio } = await supabase
+      .from('portfolios')
+      .select('id')
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .single();
+    
+    if (!portfolio) {
+      return res.status(404).json({ error: 'Portfolio not found' });
+    }
+    
+    // Add property (upsert to handle duplicates)
+    const { data, error } = await supabase
+      .from('portfolio_properties')
+      .upsert({
+        portfolio_id: id,
+        bbl,
+        notes: notes || null
+      }, {
+        onConflict: 'portfolio_id,bbl'
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ success: true, property: data });
+    
+  } catch (error) {
+    console.error('Add property error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/portfolios/:id/properties/:bbl
+ * Update property notes
+ */
+app.put('/api/portfolios/:id/properties/:bbl', requireAuth, async (req, res) => {
+  try {
+    const { id, bbl } = req.params;
+    const { notes } = req.body;
+    
+    const { data, error } = await supabase
+      .from('portfolio_properties')
+      .update({ notes })
+      .eq('portfolio_id', id)
+      .eq('bbl', bbl)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ success: true, property: data });
+    
+  } catch (error) {
+    console.error('Update property notes error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/portfolios/:id/properties/:bbl
+ * Remove property from portfolio
+ */
+app.delete('/api/portfolios/:id/properties/:bbl', requireAuth, async (req, res) => {
+  try {
+    const { id, bbl } = req.params;
+    
+    const { error } = await supabase
+      .from('portfolio_properties')
+      .delete()
+      .eq('portfolio_id', id)
+      .eq('bbl', bbl);
+    
+    if (error) throw error;
+    
+    res.json({ success: true });
+    
+  } catch (error) {
+    console.error('Remove property error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// DASHBOARD ROUTES (PRP 2.1)
+// =============================================
+
+/**
+ * GET /api/dashboard/portfolio-summary
+ * Aggregated stats for user's portfolio
+ */
+app.get('/api/dashboard/portfolio-summary', requireAuth, async (req, res) => {
+  try {
+    // 1. Get user's portfolio properties
+    const { data: portfolioProps } = await supabase
+      .from('portfolio_properties')
+      .select('bbl, portfolios!inner(user_id)')
+      .eq('portfolios.user_id', req.user.id);
+      
+    if (!portfolioProps || portfolioProps.length === 0) {
+      return res.json({
+        propertyCount: 0,
+        totalAssessed: 0,
+        newViolations: 0,
+        avgFarGap: 0
+      });
+    }
+    
+    const bbls = portfolioProps.map(p => p.bbl);
+    
+    // 2. Get Property Details
+    const { data: properties } = await supabase
+      .from('properties')
+      .select('assesstot, far_gap, violations(status, issue_date)')
+      .in('bbl', bbls);
+      
+    // 3. Aggregate
+    const propertyCount = properties.length;
+    const totalAssessed = properties.reduce((sum, p) => sum + (p.assesstot || 0), 0);
+    const avgFarGap = propertyCount > 0 
+      ? properties.reduce((sum, p) => sum + (p.far_gap || 0), 0) / propertyCount 
+      : 0;
+      
+    // New Violations (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    let newViolations = 0;
+    properties.forEach(p => {
+      if (p.violations) {
+        newViolations += p.violations.filter(v => 
+          v.status === 'Open' && new Date(v.issue_date) > thirtyDaysAgo
+        ).length;
+      }
+    });
+    
+    res.json({
+      propertyCount,
+      totalAssessed,
+      newViolations,
+      avgFarGap
+    });
+    
+  } catch (error) {
+    console.error('Dashboard summary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/dashboard/activity
+ * Recent activity feed for watched properties
+ */
+app.get('/api/dashboard/activity', requireAuth, async (req, res) => {
+  try {
+    // 1. Get BBLs
+    const { data: portfolioProps } = await supabase
+      .from('portfolio_properties')
+      .select('bbl, portfolios!inner(user_id)')
+      .eq('portfolios.user_id', req.user.id);
+      
+    if (!portfolioProps || portfolioProps.length === 0) {
+      return res.json({ activities: [] });
+    }
+    const bbls = portfolioProps.map(p => p.bbl);
+    
+    // 2. Fetch Sales
+    const { data: sales } = await supabase
+      .from('sales')
+      .select('sale_date, sale_price, bbl, properties(address)')
+      .in('bbl', bbls)
+      .order('sale_date', { ascending: false })
+      .limit(10);
+      
+    // 3. Fetch Violations
+    const { data: violations } = await supabase
+      .from('violations')
+      .select('issue_date, description, violation_type, bbl, properties(address)')
+      .in('bbl', bbls)
+      .eq('status', 'Open')
+      .order('issue_date', { ascending: false })
+      .limit(10);
+      
+    // 4. Merge and Sort
+    const activities = [];
+    
+    sales?.forEach(s => {
+      activities.push({
+        type: 'sale',
+        date: s.sale_date,
+        title: `Sale: ${s.properties?.address || s.bbl}`,
+        description: `Sold for $${(s.sale_price || 0).toLocaleString()}`,
+        bbl: s.bbl
+      });
+    });
+    
+    violations?.forEach(v => {
+      activities.push({
+        type: 'violation',
+        date: v.issue_date,
+        title: `${v.violation_type} Violation: ${v.properties?.address || v.bbl}`,
+        description: v.description,
+        bbl: v.bbl
+      });
+    });
+    
+    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    res.json({ activities: activities.slice(0, 20) });
+    
+  } catch (error) {
+    console.error('Dashboard activity error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/dashboard/market-pulse
+ * General market statistics
+ */
+app.get('/api/dashboard/market-pulse', async (req, res) => {
+  try {
+    // 1. Sales this month
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
+    
+    const { data: recentSales } = await supabase
+      .from('sales')
+      .select('sale_price, price_per_sf, properties(bldgclass)')
+      .gte('sale_date', dateStr);
+      
+    const salesCount = recentSales?.length || 0;
+    
+    // 2. Avg $/SF by Class
+    const sums = {};
+    const counts = {};
+    
+    recentSales?.forEach(s => {
+      if (s.price_per_sf && s.properties?.bldgclass) {
+        const prefix = s.properties.bldgclass.charAt(0);
+        sums[prefix] = (sums[prefix] || 0) + s.price_per_sf;
+        counts[prefix] = (counts[prefix] || 0) + 1;
+      }
+    });
+    
+    const psfByClass = {};
+    Object.keys(sums).forEach(k => {
+      psfByClass[k] = Math.round(sums[k] / counts[k]);
+    });
+    
+    // 3. Volume Trend (Mocked)
+    const volumeTrend = "+5%"; 
+    
+    res.json({
+      salesCount,
+      psfByClass,
+      volumeTrend
+    });
+    
+  } catch (error) {
+    console.error('Market pulse error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/heatmap
+ * Returns weighted points for heatmap visualization
+ * Query params:
+ *   metric - opportunity | price | distress
+ */
+app.get('/api/heatmap', async (req, res) => {
+  try {
+    const { metric = 'opportunity' } = req.query;
+    let points = [];
+    
+    if (metric === 'opportunity') {
+      // Fetch all properties with FAR gap
+      const { data, error } = await supabase
+        .from('properties')
+        .select('lat, lng, far_gap')
+        .gt('far_gap', 0)
+        .not('lat', 'is', null)
+        .not('lng', 'is', null)
+        .limit(10000); // Get as many as possible
+        
+      if (error) throw error;
+      
+      points = data.map(p => ({
+        lat: p.lat,
+        lng: p.lng,
+        weight: Math.min(p.far_gap / 10, 1) // Normalize somewhat (cap at 10 FAR gap)
+      }));
+      
+    } else if (metric === 'price') {
+      // Fetch recent sales
+      const { data, error } = await supabase
+        .from('sales')
+        .select('price_per_sf, properties!inner(lat, lng)')
+        .gt('sale_date', '2022-01-01')
+        .gt('price_per_sf', 0)
+        .not('properties.lat', 'is', null)
+        .limit(10000);
+        
+      if (error) throw error;
+      
+      points = data.map(s => ({
+        lat: s.properties.lat,
+        lng: s.properties.lng,
+        weight: Math.min(s.price_per_sf / 2000, 1) // Cap at $2000/sf
+      }));
+      
+    } else if (metric === 'distress') {
+      // Fetch open violations
+      // Ideally we'd use the computed distress score, but that's heavy.
+      // We'll count open violations per property.
+      const { data, error } = await supabase
+        .from('violations')
+        .select('properties!inner(lat, lng)')
+        .eq('status', 'Open')
+        .not('properties.lat', 'is', null)
+        .limit(10000);
+        
+      if (error) throw error;
+      
+      // Aggregate by location (since multiple violations per property)
+      const locMap = {};
+      data.forEach(v => {
+        const key = `${v.properties.lat},${v.properties.lng}`;
+        if (!locMap[key]) {
+          locMap[key] = { lat: v.properties.lat, lng: v.properties.lng, count: 0 };
+        }
+        locMap[key].count++;
+      });
+      
+      points = Object.values(locMap).map(l => ({
+        lat: l.lat,
+        lng: l.lng,
+        weight: Math.min(l.count / 10, 1) // Cap at 10 violations
+      }));
+    }
+    
+    res.json({ metric, points });
+    
+  } catch (error) {
+    console.error('Heatmap error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// SAVED SEARCHES ROUTES (PRP 3.1)
+// =============================================
+
+/**
+ * GET /api/searches
+ * List user's saved searches
+ */
+app.get('/api/searches', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('saved_searches')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    res.json({ searches: data });
+    
+  } catch (error) {
+    console.error('List searches error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/searches
+ * Create saved search
+ */
+app.post('/api/searches', requireAuth, async (req, res) => {
+  try {
+    const { name, filters, alert_enabled, alert_frequency } = req.body;
+    
+    const { data, error } = await supabase
+      .from('saved_searches')
+      .insert({
+        user_id: req.user.id,
+        name,
+        filters,
+        alert_enabled: alert_enabled || false,
+        alert_frequency: alert_frequency || 'daily'
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ search: data });
+    
+  } catch (error) {
+    console.error('Create search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/searches/:id
+ * Update saved search
+ */
+app.put('/api/searches/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, filters, alert_enabled, alert_frequency } = req.body;
+    
+    const { data, error } = await supabase
+      .from('saved_searches')
+      .update({
+        name,
+        filters,
+        alert_enabled,
+        alert_frequency,
+        updated_at: new Date()
+      })
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ search: data });
+    
+  } catch (error) {
+    console.error('Update search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/searches/:id
+ * Delete saved search
+ */
+app.delete('/api/searches/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { error } = await supabase
+      .from('saved_searches')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id);
+    
+    if (error) throw error;
+    
+    res.json({ success: true });
+    
+  } catch (error) {
+    console.error('Delete search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Auth callback page (serves HTML that handles the token)
+app.get('/auth/callback', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Signing in...</title>
+      <style>
+        body { 
+          font-family: system-ui, sans-serif; 
+          display: flex; 
+          justify-content: center; 
+          align-items: center; 
+          height: 100vh; 
+          margin: 0;
+          background: #1a1a2e;
+          color: #fff;
+        }
+        .container { text-align: center; }
+        .spinner { 
+          width: 40px; 
+          height: 40px; 
+          border: 3px solid #333; 
+          border-top-color: #3b82f6; 
+          border-radius: 50%; 
+          animation: spin 1s linear infinite;
+          margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="spinner"></div>
+        <p>Signing you in...</p>
+      </div>
+      <script>
+        // Extract token from URL hash
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
+        const expires_at = params.get('expires_at');
+        
+        if (access_token) {
+          // Store tokens
+          localStorage.setItem('auth_token', access_token);
+          localStorage.setItem('refresh_token', refresh_token);
+          localStorage.setItem('expires_at', expires_at);
+          
+          // Redirect to app
+          window.location.href = '/';
+        } else {
+          // Check for error
+          const error = params.get('error_description') || params.get('error');
+          if (error) {
+            document.querySelector('.container').innerHTML = 
+              '<p style="color: #ef4444;">Login failed: ' + error + '</p>' +
+              '<p><a href="/" style="color: #3b82f6;">Return to app</a></p>';
+          } else {
+            // Try URL query params (some flows use this)
+            const urlParams = new URLSearchParams(window.location.search);
+            const token_hash = urlParams.get('token_hash');
+            const type = urlParams.get('type');
+            
+            if (token_hash) {
+              // Verify with backend
+              fetch('/api/auth/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token_hash, type })
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (data.session) {
+                  localStorage.setItem('auth_token', data.session.access_token);
+                  localStorage.setItem('refresh_token', data.session.refresh_token);
+                  localStorage.setItem('expires_at', data.session.expires_at);
+                  window.location.href = '/';
+                } else {
+                  throw new Error(data.error || 'Verification failed');
+                }
+              })
+              .catch(err => {
+                document.querySelector('.container').innerHTML = 
+                  '<p style="color: #ef4444;">Login failed: ' + err.message + '</p>' +
+                  '<p><a href="/" style="color: #3b82f6;">Return to app</a></p>';
+              });
+            } else {
+              document.querySelector('.container').innerHTML = 
+                '<p style="color: #ef4444;">No authentication token found</p>' +
+                '<p><a href="/" style="color: #3b82f6;">Return to app</a></p>';
+            }
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// =============================================
+// ADMIN ROUTES
+// =============================================
+
+/**
+ * POST /api/admin/seed
+ * Re-fetch data from NYC Open Data APIs and seed the database
+ * This runs the fetch_nyc_data.js script
+ */
+app.post('/api/admin/seed', async (req, res) => {
+  console.log('[Admin] Seed request received');
+  
+  try {
+    // Run the fetch script as a child process
+    const result = await new Promise((resolve, reject) => {
+      exec('node fetch_nyc_data.js', { cwd: __dirname }, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[Admin] Seed script error:', error);
+          reject(error);
+          return;
+        }
+        console.log('[Admin] Seed script output:', stdout);
+        if (stderr) console.error('[Admin] Seed script stderr:', stderr);
+        resolve(stdout);
+      });
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Data refresh completed',
+      output: result.substring(0, 500) // Truncate for response
+    });
+    
+  } catch (error) {
+    console.error('[Admin] Seed error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // =============================================
@@ -350,34 +1236,56 @@ app.get('/api/data', async (req, res) => {
     console.log('[/api/data] Request:', { bldgclass, minFarGap, minDistress, limit });
     
     // ─────────────────────────────────────────
+    // 0. GET TOTAL COUNTS (Optimization)
+    // ─────────────────────────────────────────
+    // Get absolute total in DB
+    const { count: totalInDatabase } = await supabase
+      .from('properties')
+      .select('*', { count: 'exact', head: true });
+
+    // Helper to apply SQL filters (reused for count)
+    const applySqlFilters = (q) => {
+      q = applyBldgClassFilter(q, bldgclass);
+      if (minFarGap) q = q.gte('far_gap', parseFloat(minFarGap));
+      if (maxFarGap) q = q.lte('far_gap', parseFloat(maxFarGap));
+      if (minYear) q = q.gte('yearbuilt', parseInt(minYear));
+      if (maxYear) q = q.lte('yearbuilt', parseInt(maxYear));
+      if (owner) q = q.ilike('ownername', `%${owner}%`);
+      if (address) q = q.ilike('address', `%${address}%`);
+      if (zipcode) q = q.eq('zipcode', zipcode);
+      return q;
+    };
+
+    // Get accurate filtered count (SQL only)
+    // We do this separately to avoid the fetch limit cap
+    let countQuery = supabase.from('properties').select('*', { count: 'exact', head: true });
+    countQuery = applySqlFilters(countQuery);
+    const { count: totalFilteredSQL } = await countQuery;
+
+    // ─────────────────────────────────────────
     // 1. QUERY PROPERTIES
     // ─────────────────────────────────────────
     let propQuery = supabase
       .from('properties')
       .select('*, violations(violation_type, status)');
     
-    // Building class filter
-    propQuery = applyBldgClassFilter(propQuery, bldgclass);
+    // Apply filters
+    propQuery = applySqlFilters(propQuery);
     
-    // Range filters
-    if (minFarGap) propQuery = propQuery.gte('far_gap', parseFloat(minFarGap));
-    if (maxFarGap) propQuery = propQuery.lte('far_gap', parseFloat(maxFarGap));
-    if (minYear) propQuery = propQuery.gte('yearbuilt', parseInt(minYear));
-    if (maxYear) propQuery = propQuery.lte('yearbuilt', parseInt(maxYear));
-    
-    // Text search filters
-    if (owner) propQuery = propQuery.ilike('ownername', `%${owner}%`);
-    if (address) propQuery = propQuery.ilike('address', `%${address}%`);
-    if (zipcode) propQuery = propQuery.eq('zipcode', zipcode);
-    
-    // Fetch properties (we'll filter by distress after calculating it)
-    const fetchLimit = minDistress ? 10000 : parseInt(limit);
+    // Fetch properties
+    // Note: If filtering by distress (calculated field), we must fetch all matches first
+    // If NOT filtering by distress, we could technically limit here, but we need 
+    // the full set for accurate stats (e.g. avg PSF) anyway.
+    // We'll stick to the 10k limit to catch everything for now.
+    const fetchLimit = 10000; 
     propQuery = propQuery.limit(fetchLimit);
     
     const { data: rawProperties, error: propError } = await propQuery;
     if (propError) throw propError;
     
-    // Calculate distress score on the fly for each property
+    console.log('[/api/data] Fetched', rawProperties.length, 'properties from database');
+    
+    // Calculate distress score and max_far on the fly for each property
     const enrichedProperties = rawProperties.map(p => {
       const openViolations = (p.violations || []).filter(v => v.status === 'Open');
       const hpdCount = openViolations.filter(v => v.violation_type === 'HPD').length;
@@ -385,10 +1293,14 @@ app.get('/api/data', async (req, res) => {
       
       const calculatedScore = Math.min(hpdCount, 20) + Math.min(dobCount * 5, 30);
       
+      // Calculate Max FAR for display context
+      const maxFar = Math.max(p.residfar || 0, p.commfar || 0, p.facilfar || 0);
+
       return {
         ...p,
         distress_score: calculatedScore,
         violation_count: openViolations.length,
+        max_far: maxFar, // Explicitly send this to frontend
         violations: undefined // Remove from response to keep it clean
       };
     });
@@ -408,6 +1320,9 @@ app.get('/api/data', async (req, res) => {
       const bVal = b[sortField] || 0;
       return ascending ? aVal - bVal : bVal - aVal;
     });
+    
+    // Store total count before applying limit
+    const totalFilteredCount = filteredProperties.length;
     
     // Apply limit after sorting
     const properties = minDistress ? filteredProperties : filteredProperties.slice(0, parseInt(limit));
@@ -446,8 +1361,14 @@ app.get('/api/data', async (req, res) => {
     // ─────────────────────────────────────────
     // 3. COMPUTE STATS
     // ─────────────────────────────────────────
+    // If we filtered by distress (JS filter), we can only know the count of what we fetched.
+    // Otherwise, use the accurate SQL count.
+    const accurateTotalCount = minDistress ? filteredProperties.length : totalFilteredSQL;
+
     const stats = {
-      propertyCount: properties.length,
+      propertyCount: properties.length, // Count of properties returned (limited)
+      totalCount: accurateTotalCount,   // Total count matching filters
+      totalInDatabase,                  // Absolute total in DB
       salesCount: sales.length,
       
       // By building class (of filtered results)
@@ -610,11 +1531,13 @@ app.get('/api/properties', async (req, res) => {
       const dobCount = openViolations.filter(v => v.violation_type === 'DOB').length;
       
       const calculatedScore = Math.min(hpdCount, 20) + Math.min(dobCount * 5, 30);
+      const maxFar = Math.max(p.residfar || 0, p.commfar || 0, p.facilfar || 0);
       
       return {
         ...p,
         distress_score: calculatedScore,
         violation_count: openViolations.length,
+        max_far: maxFar,
         violations: undefined // Remove from response to keep it clean
       };
     });
@@ -679,6 +1602,7 @@ app.get('/api/properties/:bbl', async (req, res) => {
     const hpdCount = openViolations.filter(v => v.violation_type === 'HPD').length;
     const dobCount = openViolations.filter(v => v.violation_type === 'DOB').length;
     const calculatedScore = Math.min(hpdCount, 20) + Math.min(dobCount * 5, 30);
+    const maxFar = Math.max(property.residfar || 0, property.commfar || 0, property.facilfar || 0);
     
     // Get sales history
     const { data: sales } = await supabase
@@ -698,6 +1622,7 @@ app.get('/api/properties/:bbl', async (req, res) => {
       ...property,
       distress_score: calculatedScore, // Override DB value with real-time calc
       violation_count: openViolations.length,
+      max_far: maxFar, // Explicit return
       violations: openViolations, // Return full violations list
       sales: sales || [],
       permits: permits || []
@@ -919,8 +1844,155 @@ app.get('/api/sales', async (req, res) => {
   }
 });
 
+
+/**
+ * GET /api/owners/distressed
+ * Returns owners ranked by distress signals
+ */
+app.get('/api/owners/distressed', async (req, res) => {
+  try {
+    const { limit = 50, minScore = 20, minProperties = 1 } = req.query;
+    
+    // 1. Fetch all properties (lightweight)
+    const { data: properties, error: propError } = await supabase
+      .from('properties')
+      .select('bbl, ownername, assesstot, bldgclass');
+      
+    if (propError) throw propError;
+    
+    // 2. Fetch open violations
+    const { data: violations, error: violError } = await supabase
+      .from('violations')
+      .select('bbl, violation_type, issue_date')
+      .eq('status', 'Open');
+      
+    if (violError) throw violError;
+    
+    // 3. Group by Owner
+    const ownersMap = {};
+    const bblViolations = {};
+    
+    // Index violations by BBL
+    violations.forEach(v => {
+      if (!bblViolations[v.bbl]) bblViolations[v.bbl] = [];
+      bblViolations[v.bbl].push(v);
+    });
+    
+    // Aggregate properties to owners
+    properties.forEach(p => {
+      const name = p.ownername || 'Unknown Owner';
+      if (!ownersMap[name]) {
+        ownersMap[name] = {
+          name,
+          properties: [],
+          totalAssessed: 0,
+          totalViolations: 0,
+          violationAges: [],
+          propsWithViolations: 0
+        };
+      }
+      
+      const owner = ownersMap[name];
+      owner.properties.push(p);
+      owner.totalAssessed += (p.assesstot || 0);
+      
+      const propsViols = bblViolations[p.bbl] || [];
+      if (propsViols.length > 0) {
+        owner.totalViolations += propsViols.length;
+        owner.propsWithViolations++;
+        
+        // Calculate ages (days)
+        const now = new Date();
+        propsViols.forEach(v => {
+          if (v.issue_date) {
+            const age = (now - new Date(v.issue_date)) / (1000 * 60 * 60 * 24);
+            owner.violationAges.push(age);
+          }
+        });
+      }
+    });
+    
+    // 4. Calculate Scores
+    const scoredOwners = Object.values(ownersMap).map(o => {
+      let score = 0;
+      
+      const pctWithViolations = o.propsWithViolations / o.properties.length;
+      const avgViolationAge = o.violationAges.length > 0 
+          ? o.violationAges.reduce((a, b) => a + b, 0) / o.violationAges.length 
+          : 0;
+      
+      // Filter by portfolio size early
+      if (o.properties.length < parseInt(minProperties)) return null;
+      
+      // Metrics
+      // 1. Base Score (Violations per property)
+      // If > 1 violation per property on average, that's bad.
+      const violationsPerProp = o.totalViolations / o.properties.length;
+      score += Math.min(violationsPerProp * 10, 40);
+      
+      // 2. Portfolio Spread
+      // If > 50% of portfolio has violations
+      if (pctWithViolations > 0.5) {
+        score += 20;
+      }
+
+      // 3. Chronic Issues (Max 20)
+      // If avg violation is > 1 year old (365 days)
+      score += Math.min((avgViolationAge / 365) * 10, 20);
+      
+      // 4. Single Asset Risk (Max 5)
+      if (o.properties.length === 1 && o.totalViolations > 0) {
+        score += 5;
+      }
+      
+      // 5. Overwhelmed (Max 15)
+      // If violations > properties * 5
+      if (o.totalViolations > o.properties.length * 5) {
+        score += 15;
+      }
+      
+      return {
+        name: o.name,
+        propertyCount: o.properties.length,
+        totalAssessed: o.totalAssessed,
+        openViolations: o.totalViolations,
+        pctWithViolations: Math.round(pctWithViolations * 100),
+        avgViolationAgeDays: Math.round(avgViolationAge),
+        distressScore: Math.round(score),
+        entityType: detectEntityType(o.name),
+        topIssues: determineIssues(o.totalViolations, avgViolationAge, pctWithViolations)
+      };
+    })
+    .filter(Boolean) // Remove nulls
+    .filter(o => o.distressScore >= parseInt(minScore));
+    
+    // 5. Sort and Limit
+    scoredOwners.sort((a, b) => b.distressScore - a.distressScore);
+    const finalOwners = scoredOwners.slice(0, parseInt(limit));
+    
+    res.json({
+      count: scoredOwners.length,
+      owners: finalOwners
+    });
+    
+  } catch (error) {
+    console.error('Distressed owners error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+function determineIssues(viols, age, pct) {
+  const issues = [];
+  if (viols > 10) issues.push('Many Violations');
+  if (age > 365) issues.push('Chronic Issues');
+  if (pct > 0.5) issues.push('Portfolio Contamination');
+  if (issues.length === 0 && viols > 0) issues.push('Minor Violations');
+  return issues;
+}
+
 /**
  * GET /api/owners/:name
+
  * Returns all properties for an owner with portfolio analytics
  */
 app.get('/api/owners/:name', async (req, res) => {
@@ -1856,6 +2928,188 @@ app.get('/api/heatmap', async (req, res) => {
     
   } catch (error) {
     console.error('Heatmap error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// NOTES ROUTES
+// =============================================
+
+/**
+ * GET /api/notes
+ * Get all notes for user
+ */
+app.get('/api/notes', requireAuth, async (req, res) => {
+  try {
+    const { data: notes, error } = await supabase
+      .from('property_notes')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('updated_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    res.json({ notes: notes || [] });
+    
+  } catch (error) {
+    console.error('Get notes error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/notes/:bbl
+ * Get note for specific property
+ */
+app.get('/api/notes/:bbl', requireAuth, async (req, res) => {
+  try {
+    const { bbl } = req.params;
+    
+    const { data: note, error } = await supabase
+      .from('property_notes')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('bbl', bbl)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') throw error; // Ignore "Row not found"
+    
+    res.json({ note: note || null });
+    
+  } catch (error) {
+    console.error('Get note error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/notes
+ * Create or update note
+ */
+app.post('/api/notes', requireAuth, async (req, res) => {
+  try {
+    const { bbl, content, tags } = req.body;
+    
+    if (!bbl) {
+      return res.status(400).json({ error: 'BBL required' });
+    }
+    
+    const { data: note, error } = await supabase
+      .from('property_notes')
+      .upsert({
+        user_id: req.user.id,
+        bbl,
+        content,
+        tags: tags || [],
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,bbl' })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    // Log activity
+    await supabase.from('activity_log').insert({
+      user_id: req.user.id,
+      bbl,
+      action: 'note',
+      metadata: { snippet: content ? content.substring(0, 50) : 'Tags updated' }
+    });
+    
+    res.json({ note });
+    
+  } catch (error) {
+    console.error('Save note error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/notes/:bbl
+ * Delete note
+ */
+app.delete('/api/notes/:bbl', requireAuth, async (req, res) => {
+  try {
+    const { bbl } = req.params;
+    
+    const { error } = await supabase
+      .from('property_notes')
+      .delete()
+      .eq('user_id', req.user.id)
+      .eq('bbl', bbl);
+    
+    if (error) throw error;
+    
+    res.json({ success: true });
+    
+  } catch (error) {
+    console.error('Delete note error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// ACTIVITY LOG ROUTES
+// =============================================
+
+/**
+ * GET /api/activity
+ * Get user's activity log
+ */
+app.get('/api/activity', requireAuth, async (req, res) => {
+  try {
+    const { limit = 50, bbl, action } = req.query;
+    
+    let query = supabase
+      .from('activity_log')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit));
+      
+    if (bbl) query = query.eq('bbl', bbl);
+    if (action) query = query.eq('action', action);
+    
+    const { data: activities, error } = await query;
+    
+    if (error) throw error;
+    
+    res.json({ activities: activities || [] });
+    
+  } catch (error) {
+    console.error('Get activity error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/activity
+ * Log an activity
+ */
+app.post('/api/activity', requireAuth, async (req, res) => {
+  try {
+    const { bbl, action, metadata } = req.body;
+    
+    if (!action) {
+      return res.status(400).json({ error: 'Action required' });
+    }
+    
+    const { error } = await supabase
+      .from('activity_log')
+      .insert({
+        user_id: req.user.id,
+        bbl: bbl || null,
+        action,
+        metadata: metadata || {}
+      });
+    
+    if (error) throw error;
+    
+    res.json({ success: true });
+    
+  } catch (error) {
+    console.error('Log activity error:', error);
     res.status(500).json({ error: error.message });
   }
 });
