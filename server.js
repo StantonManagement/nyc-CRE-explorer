@@ -22,6 +22,19 @@ const app = express();
 app.set('trust proxy', 1); // Trust Railway's proxy for HTTPS
 const PORT = process.env.PORT || 3000;
 
+// Validate required environment variables
+if (!process.env.SUPABASE_URL) {
+  console.error('ERROR: SUPABASE_URL environment variable is required');
+  console.error('Please set SUPABASE_URL in your Railway environment variables');
+  process.exit(1);
+}
+
+if (!process.env.SUPABASE_KEY) {
+  console.error('ERROR: SUPABASE_KEY environment variable is required');
+  console.error('Please set SUPABASE_KEY in your Railway environment variables');
+  process.exit(1);
+}
+
 // Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
