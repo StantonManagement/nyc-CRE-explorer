@@ -3136,6 +3136,15 @@ app.post('/api/activity', requireAuth, async (req, res) => {
 
 // ============ HEALTH CHECK ============
 
+// Simple root route for Railway health checks
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'NYC CRE Explorer API',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     const { error } = await supabase
