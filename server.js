@@ -3136,9 +3136,10 @@ app.post('/api/activity', requireAuth, async (req, res) => {
 
 // ============ HEALTH CHECK ============
 
-// Simple root route for Railway health checks
+// Simple root route for Railway health checks (must be before catch-all)
 app.get('/', (req, res) => {
-  res.json({ 
+  console.log('Health check requested at root');
+  res.status(200).json({ 
     status: 'ok', 
     service: 'NYC CRE Explorer API',
     timestamp: new Date().toISOString()
@@ -3193,7 +3194,7 @@ app.get(/.*/, (req, res) => {
 // START
 // =============================================
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ═══════════════════════════════════════════
   NYC CRE Explorer API
@@ -3212,6 +3213,18 @@ app.listen(PORT, '0.0.0.0', () => {
     GET /api/health
 ═══════════════════════════════════════════
   `);
+  console.log('✓ Server is listening and ready to accept connections');
+});
+
+// Log server errors
+server.on('error', (error) => {
+  console.error('Server error:', error);
+});
+
+// Ensure server is actually listening
+server.on('listening', () => {
+  const addr = server.address();
+  console.log(`✓ Server listening on ${addr.address}:${addr.port}`);
 });
 
 // Handle uncaught errors
