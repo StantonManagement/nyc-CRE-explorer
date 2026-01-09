@@ -23,6 +23,12 @@ app.set('trust proxy', 1); // Trust Railway's proxy for HTTPS
 const PORT = process.env.PORT || 3000;
 
 // Validate required environment variables
+console.log('Starting server...');
+console.log('PORT:', process.env.PORT || '3000 (default)');
+console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? '✓ Set' : '✗ Missing');
+console.log('SUPABASE_KEY:', process.env.SUPABASE_KEY ? '✓ Set' : '✗ Missing');
+console.log('MAPBOX_ACCESS_TOKEN:', process.env.MAPBOX_ACCESS_TOKEN ? '✓ Set' : '✗ Missing (optional)');
+
 if (!process.env.SUPABASE_URL) {
   console.error('ERROR: SUPABASE_URL environment variable is required');
   console.error('Please set SUPABASE_URL in your Railway environment variables');
@@ -3178,12 +3184,12 @@ app.get(/.*/, (req, res) => {
 // START
 // =============================================
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ═══════════════════════════════════════════
   NYC CRE Explorer API
 ═══════════════════════════════════════════
-  Server:    http://localhost:${PORT}
+  Server:    http://0.0.0.0:${PORT}
   Database:  Supabase (PostgreSQL)
   
   Endpoints:
@@ -3197,4 +3203,15 @@ app.listen(PORT, () => {
     GET /api/health
 ═══════════════════════════════════════════
   `);
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
